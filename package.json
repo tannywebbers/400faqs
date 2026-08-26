@@ -1,0 +1,29 @@
+{
+  "name": "400ques",
+  "version": "1.0.0",
+  "private": true,
+  "description": "400QUES - WhatsApp powered multiplayer questions game",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "concurrently -n api,web -c green,blue \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev --workspace @400ques/api",
+    "dev:web": "npm run dev --workspace @400ques/web",
+    "db:generate": "npm run db:generate --workspace @400ques/db",
+    "db:push": "npm run db:push --workspace @400ques/db",
+    "db:migrate": "npm run db:migrate --workspace @400ques/db",
+    "db:seed": "npm run db:seed --workspace @400ques/db",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

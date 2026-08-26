@@ -1,0 +1,45 @@
+import { Router } from "express";
+import { requireAuth } from "../../middleware/auth";
+import { authRouter } from "./auth";
+import { dashboardRouter } from "./dashboard";
+import { categoriesRouter } from "./categories";
+import { questionsRouter } from "./questions";
+import { faqsRouter } from "./faqs";
+import { articlesRouter } from "./articles";
+import { settingsRouter } from "./settings";
+import { reportsRouter } from "./reports";
+import { contributionsRouter } from "./contributions";
+import { categoryRequestsRouter } from "./categoryRequests";
+import { usersRouter } from "./users";
+import { badgesRouter } from "./badges";
+import { adsRouter } from "./ads";
+import { notificationsRouter } from "./notifications";
+import { auditRouter } from "./audit";
+import { whatsappRouter } from "./whatsapp";
+import { uploadsRouter } from "./uploads";
+import { contactRouter } from "./contact";
+import { adminsRouter } from "./admins";
+
+export const adminRouter = Router();
+
+adminRouter.use("/auth", authRouter);
+adminRouter.use(requireAuth);
+
+adminRouter.use("/dashboard", dashboardRouter);
+adminRouter.use("/categories", categoriesRouter);
+adminRouter.use("/questions", questionsRouter);
+adminRouter.use("/faqs", faqsRouter);
+adminRouter.use("/articles", articlesRouter);
+adminRouter.use("/settings", settingsRouter);
+adminRouter.use("/reports", reportsRouter);
+adminRouter.use("/contributions", contributionsRouter);
+adminRouter.use("/category-requests", categoryRequestsRouter);
+adminRouter.use("/users", usersRouter);
+adminRouter.use("/badges", badgesRouter);
+adminRouter.use("/ads", adsRouter);
+adminRouter.use("/notifications", notificationsRouter);
+adminRouter.use("/audit", auditRouter);
+adminRouter.use("/whatsapp", whatsappRouter);
+adminRouter.use("/uploads", uploadsRouter);
+adminRouter.use("/contact", contactRouter);
+adminRouter.use("/admins", adminsRouter);
