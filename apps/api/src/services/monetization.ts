@@ -4,6 +4,7 @@ import type { AdProvider, AdSnippet, MonetizationGate, Prisma } from "@prisma/cl
 import { prisma } from "../lib/prisma";
 import { config } from "../config";
 import { logger } from "../lib/logger";
+import { recordVerifiedRevenue } from "./revenue";
 
 // ============================================================
 // Monetization core service.
@@ -374,6 +375,7 @@ export async function verifyGateCode(
     data: { status: GateStatus.VERIFIED, verifiedAt: new Date(), attempts },
   });
   await recordEvent("VERIFICATION_SUCCESS", { gateId: gate.id, sessionId, userId, metadata: { attempts } });
+  await recordVerifiedRevenue(gate);
   return { ok: true, gate: { ...gate, status: GateStatus.VERIFIED, attempts } };
 }
 

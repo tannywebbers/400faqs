@@ -24,6 +24,9 @@ import {
   LogOut,
   PlayCircle,
   CreditCard,
+  BarChart3,
+  Send,
+  Wallet,
   Menu,
   X,
 } from "lucide-react";
@@ -35,6 +38,9 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
     label: "Overview",
     items: [
       { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
+      { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
+      { href: "/admin/campaigns", label: "Campaigns", icon: Send },
+      { href: "/admin/revenue", label: "Revenue", icon: Wallet },
     ],
   },
   {

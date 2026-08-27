@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { cacheKeys, cacheGet, cacheSet } from "../lib/redis";
 
@@ -187,4 +188,345 @@ export async function getTopCategories(limit = 10) {
 
 function truncate(s: string, n: number) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+// ============================================================
+// PHASE 10 — advanced analytics
+// ============================================================
+
+export function parseDateRange(from?: string, to?: string): { start: Date; end: Date } {
+  const end = to ? new Date(to) : new Date();
+  if (Number.isNaN(end.getTime())) throw new Error("Invalid or missing `to` date");
+  end.setHours(23, 59, 59, 999);
+
+  const start = from ? new Date(from) : new Date(end.getTime() - 29 * 86_400_000);
+  if (Number.isNaN(start.getTime())) throw new Error("Invalid `from` date");
+  start.setHours(0, 0, 0, 0);
+  if (start > end) throw new Error("`from` cannot be after `to`");
+  return { start, end };
+}
+
+export function buildDaySeries(start: Date, end: Date): string[] {
+  const keys: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    keys.push(cursor.toISOString().slice(0, 10));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return keys;
+}
+
+type CountRow = { createdAt: Date; _count: { _all: number } };
+
+function countMap(rows: CountRow[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const r of rows) {
+    const k = r.createdAt.toISOString().slice(0, 10);
+    m.set(k, (m.get(k) ?? 0) + r._count._all);
+  }
+  return m;
+}
+
+export type AdminAnalytics = {
+  start: string;
+  end: string;
+  days: number;
+  totals: Record<string, number>;
+  series: AdminSeriesPoint[];
+};
+
+type AdminSeriesPoint = {
+  date: string;
+  users: number;
+  questions: number;
+  sessions: number;
+  moves: number;
+  contributions: number;
+  reports: number;
+  categoryRequests: number;
+  messages: number;
+  revenueLedger: number;
+  campaigns: number;
+};
+
+export async function getAdminAnalytics(from?: string, to?: string): Promise<AdminAnalytics> {
+  const { start, end } = parseDateRange(from, to);
+  const where = { createdAt: { gte: start, lte: end } };
+
+  const [users, questions, sessions, moves, contributions, reports, categoryRequests, messages, revenue, campaigns] = await Promise.all([
+    prisma.user.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
+    prisma.question.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
+    prisma.session.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
+    prisma.gameMove.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
+    prisma.contribution.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
+    prisma.questionReport.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
+    prisma.categoryRequest.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
+    prisma.messageLog.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
+    prisma.revenueLedger.groupBy({ by: ["createdAt"], _count: { _all: true }, _sum: { revenueAmount: true, payoutAmount: true }, where }),
+    prisma.campaign.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
+  ]);
+
+  const maps = {
+    users: countMap(users as CountRow[]),
+    questions: countMap(questions as CountRow[]),
+    sessions: countMap(sessions as CountRow[]),
+    moves: countMap(moves as CountRow[]),
+    contributions: countMap(contributions as CountRow[]),
+    reports: countMap(reports as CountRow[]),
+    categoryRequests: countMap(categoryRequests as CountRow[]),
+    messages: countMap(messages as CountRow[]),
+    revenueLedger: countMap(revenue as CountRow[]),
+    campaigns: countMap(campaigns as CountRow[]),
+  };
+
+  const days = buildDaySeries(start, end);
+  const series: AdminSeriesPoint[] = days.map((day) => {
+    const point: AdminSeriesPoint = {
+      date: day,
+      users: maps.users.get(day) ?? 0,
+      questions: maps.questions.get(day) ?? 0,
+      sessions: maps.sessions.get(day) ?? 0,
+      moves: maps.moves.get(day) ?? 0,
+      contributions: maps.contributions.get(day) ?? 0,
+      reports: maps.reports.get(day) ?? 0,
+      categoryRequests: maps.categoryRequests.get(day) ?? 0,
+      messages: maps.messages.get(day) ?? 0,
+      revenueLedger: maps.revenueLedger.get(day) ?? 0,
+      campaigns: maps.campaigns.get(day) ?? 0,
+    };
+    return point;
+  });
+
+  const sum = (m: Map<string, number>) => [...m.values()].reduce((a, b) => a + b, 0);
+  const totals: Record<string, number> = {
+    users: sum(maps.users),
+    questions: sum(maps.questions),
+    sessions: sum(maps.sessions),
+    moves: sum(maps.moves),
+    contributions: sum(maps.contributions),
+    reports: sum(maps.reports),
+    categoryRequests: sum(maps.categoryRequests),
+    messages: sum(maps.messages),
+    revenueLedger: sum(maps.revenueLedger),
+    campaigns: sum(maps.campaigns),
+  };
+
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+    days: days.length,
+    totals,
+    series,
+  };
+}
+
+export type WhatsAppStats = {
+  totals: {
+    conversations: number;
+    outbound: number;
+    inbound: number;
+    sent: number;
+    delivered: number;
+    read: number;
+    failed: number;
+    unknown: number;
+    automated: number;
+    manual: number;
+  };
+  byType: { type: string; count: number }[];
+  byStatus: { status: string; count: number }[];
+  last7Days: { date: string; outbound: number; inbound: number }[];
+};
+
+export async function getWhatsAppStats(from?: string, to?: string): Promise<WhatsAppStats> {
+  const { start, end } = parseDateRange(from, to);
+  const where = { createdAt: { gte: start, lte: end } };
+
+  const [byStatus, byType, byDay] = await Promise.all([
+    prisma.messageLog.groupBy({ by: ["status"], _count: { _all: true }, where }),
+    prisma.messageLog.groupBy({ by: ["type"], _count: { _all: true }, where }),
+    prisma.messageLog.groupBy({ by: ["createdAt", "direction"], _count: { _all: true }, where }),
+  ]);
+
+  const statusMap = Object.fromEntries(byStatus.map((r) => [r.status, r._count._all]));
+  const typeRows = byType.map((r) => ({ type: r.type, count: r._count._all })).sort((a, b) => b.count - a.count);
+
+  const bar = new Map<string, { date: string; outbound: number; inbound: number }>();
+  for (const r of byDay) {
+    const k = r.createdAt.toISOString().slice(0, 10);
+    const row = bar.get(k) ?? { date: k, outbound: 0, inbound: 0 };
+    if (r.direction === "inbound") row.inbound += r._count._all;
+    else row.outbound += r._count._all;
+    bar.set(k, row);
+  }
+  const last7Days = buildDaySeries(start, end)
+    .map((day) => bar.get(day) ?? { date: day, outbound: 0, inbound: 0 })
+    .slice(-7);
+
+  const conversations = await prisma.messageLog.findMany({ where, distinct: ["phone"], select: { phone: true } });
+  const automated = await prisma.messageLog.count({ where: { ...where, metadata: { path: ["source"], not: "manual" } } });
+  const manual = await prisma.messageLog.count({ where: { ...where, metadata: { path: ["source"], equals: "manual" } } });
+
+  return {
+    totals: {
+      conversations: conversations.length,
+      outbound: (statusMap["sent"] ?? 0) + (statusMap["delivered"] ?? 0) + (statusMap["read"] ?? 0) + (statusMap["failed"] ?? 0),
+      inbound: byDay.filter((r) => r.direction === "inbound").reduce((a, r) => a + r._count._all, 0),
+      sent: statusMap["sent"] ?? 0,
+      delivered: statusMap["delivered"] ?? 0,
+      read: statusMap["read"] ?? 0,
+      failed: statusMap["failed"] ?? 0,
+      unknown: statusMap["unknown"] ?? 0,
+      automated,
+      manual,
+    },
+    byType: typeRows,
+    byStatus: byStatus.map((r) => ({ status: r.status, count: r._count._all })),
+    last7Days,
+  };
+}
+
+export type AIStats = {
+  totalChecked: number;
+  aiAvailable: number;
+  aiUnavailable: number;
+  byClassification: { classification: string; count: number }[];
+  duplicateFound: number;
+  reviewRequired: number;
+  averageScore: number;
+  averageConfidence: number;
+  byModel: { model: string | null; count: number }[];
+  last7Days: { date: string; checked: number; duplicates: number }[];
+};
+
+export async function getAIStats(from?: string, to?: string): Promise<AIStats> {
+  const { start, end } = parseDateRange(from, to);
+  const where = { createdAt: { gte: start, lte: end }, aiResult: { not: Prisma.JsonNull } };
+
+  const [rows] = await Promise.all([
+    prisma.contribution.findMany({
+      where,
+      select: { aiResult: true, aiScore: true, createdAt: true },
+    }),
+  ]);
+
+  let totalChecked = 0;
+  let aiAvailable = 0;
+  let aiUnavailable = 0;
+  let duplicateFound = 0;
+  let reviewRequired = 0;
+  let scoreSum = 0;
+  let scoreN = 0;
+  let confSum = 0;
+  let confN = 0;
+  const classifications = new Map<string, number>();
+  const models = new Map<string, number>();
+  const byDay = new Map<string, { date: string; checked: number; duplicates: number }>();
+
+  for (const r of rows) {
+    totalChecked++;
+    const ai = r.aiResult as unknown as {
+      aiAvailable?: boolean;
+      classification?: string;
+      confidence?: number;
+      score?: number;
+      reviewRequired?: boolean;
+      model?: string | null;
+    } | null;
+    const cls = ai?.classification ?? "UNKNOWN";
+    if (ai?.aiAvailable) {
+      aiAvailable++;
+      if (ai.confidence !== undefined) { confSum += ai.confidence; confN++; }
+    } else {
+      aiUnavailable++;
+    }
+    classifications.set(cls, (classifications.get(cls) ?? 0) + 1);
+    if (cls === "EXACT_DUPLICATE" || cls === "VERY_SIMILAR") duplicateFound++;
+    if (ai?.reviewRequired) reviewRequired++;
+    if (ai?.score !== undefined) { scoreSum += ai.score; scoreN++; }
+    models.set(ai?.model ?? "none", (models.get(ai?.model ?? "none") ?? 0) + 1);
+
+    const k = r.createdAt.toISOString().slice(0, 10);
+    const row = byDay.get(k) ?? { date: k, checked: 0, duplicates: 0 };
+    row.checked++;
+    if (cls === "EXACT_DUPLICATE" || cls === "VERY_SIMILAR") row.duplicates++;
+    byDay.set(k, row);
+  }
+
+  const last7Days = buildDaySeries(start, end).slice(-7).map((day) => byDay.get(day) ?? { date: day, checked: 0, duplicates: 0 });
+
+  return {
+    totalChecked,
+    aiAvailable,
+    aiUnavailable,
+    byClassification: [...classifications.entries()].map(([classification, count]) => ({ classification, count })),
+    duplicateFound,
+    reviewRequired,
+    averageScore: scoreN > 0 ? scoreSum / scoreN : 0,
+    averageConfidence: confN > 0 ? confSum / confN : 0,
+    byModel: [...models.entries()].map(([model, count]) => ({ model, count })),
+    last7Days,
+  };
+}
+
+export async function getCategoryAnalytics() {
+  const [categories, groupByCategory, completedSessions] = await Promise.all([
+    prisma.category.findMany({
+      orderBy: [{ playCount: "desc" }],
+      take: 200,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        icon: true,
+        color: true,
+        playCount: true,
+        questionCount: true,
+        status: true,
+        createdAt: true,
+      },
+    }),
+    prisma.session.groupBy({ by: ["categoryId"], _count: { _all: true }, where: { categoryId: { not: null } } }),
+    prisma.session.findMany({ where: { status: "COMPLETED", categoryId: { not: null } }, select: { categoryId: true } }),
+  ]);
+
+  const sessionMap = new Map<string, number>();
+  for (const r of groupByCategory) sessionMap.set(r.categoryId as string, r._count._all);
+  const completedMap = new Map<string, number>();
+  for (const s of completedSessions) completedMap.set(s.categoryId as string, (completedMap.get(s.categoryId as string) ?? 0) + 1);
+
+  const avgTurns = Math.round((completedSessions.length / Math.max(1, categories.length)) * 10) / 10;
+
+  return categories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    slug: c.slug,
+    icon: c.icon,
+    color: c.color,
+    status: c.status,
+    questionCount: c.questionCount,
+    playCount: c.playCount,
+    sessions: sessionMap.get(c.id) ?? 0,
+    completedSessions: completedMap.get(c.id) ?? 0,
+    avgTurns,
+  }));
+}
+
+export async function getTopQuestions(limit = 10) {
+  return prisma.question.findMany({
+    where: { status: "APPROVED" },
+    orderBy: [{ playsCount: "desc" }, { reportCount: "asc" }],
+    take: limit,
+    select: {
+      id: true,
+      text: true,
+      type: true,
+      playsCount: true,
+      reportCount: true,
+      difficulty: true,
+      aiScore: true,
+      createdAt: true,
+      category: { select: { id: true, name: true, slug: true } },
+    },
+  });
 }

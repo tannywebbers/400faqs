@@ -54,13 +54,15 @@ export default function AppContributionsPage() {
 function Inner() {
   const { phone } = usePhone();
   const [status, setStatus] = useState("");
+  const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
 
   const query = useQuery<ListResponse>({
-    queryKey: ["app-contributions", phone, status, page],
+    queryKey: ["app-contributions", phone, status, q, page],
     queryFn: () => {
       const params = new URLSearchParams({ phone: encodeURIComponent(phone), page: String(page), limit: "10" });
       if (status) params.set("status", status);
+      if (q.trim()) params.set("q", q.trim());
       return apiFetch(`/api/public/contributions?${params.toString()}`);
     },
     placeholderData: (prev) => prev,
@@ -70,22 +72,36 @@ function Inner() {
 
   return (
     <div>
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        {STATUS_FILTERS.map((f) => (
-          <button
-            key={f.value || "all"}
-            onClick={() => {
-              setStatus(f.value);
+      <div className="mb-5 space-y-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
               setPage(1);
             }}
-            className={cn(
-              "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-              status === f.value ? "border-brand bg-brand text-white" : "border-line bg-white text-muted-foreground hover:bg-surface"
-            )}
-          >
-            {f.label}
-          </button>
-        ))}
+            placeholder="Search your questions…"
+            className="w-full rounded-full border border-line bg-white py-2 pl-9 pr-4 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.value || "all"}
+              onClick={() => {
+                setStatus(f.value);
+                setPage(1);
+              }}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                status === f.value ? "border-brand bg-brand text-white" : "border-line bg-white text-muted-foreground hover:bg-surface"
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {query.isLoading ? (

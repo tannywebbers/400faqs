@@ -5,6 +5,8 @@ export const QUEUES = {
   moderation: "moderation",
   game: "game",
   notification: "notification",
+  campaign: "campaign",
+  snapshot: "snapshot",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];

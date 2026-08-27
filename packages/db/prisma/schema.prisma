@@ -131,6 +131,7 @@ model Admin {
   reviewedReports    QuestionReport[]
   reviewedCategoryRequests CategoryRequest[]
   createdCategories   Category[]
+  campaigns     Campaign[]
 }
 
 // ============================================================
@@ -168,6 +169,8 @@ model User {
   movesAnswered      GameMove[]   @relation("AnsweredMoves")
   monetizationGates  MonetizationGate[]
   monetizationEvents MonetizationEvent[]
+  monetizationLedger RevenueLedger[]
+  campaignDeliveries CampaignDelivery[]
 }
 
 // ============================================================
@@ -271,6 +274,7 @@ model Session {
   moves GameMove[]
   monetizationGates  MonetizationGate[]
   monetizationEvents MonetizationEvent[]
+  monetizationLedger RevenueLedger[]
 
   @@index([status, createdAt])
   @@index([inviteCode])
@@ -557,6 +561,7 @@ model AdProvider {
 
   snippets AdSnippet[]
   gates    MonetizationGate[]
+  ledger   RevenueLedger[]
 
   @@index([enabled, archived, priority])
 }
@@ -601,6 +606,7 @@ model MonetizationGate {
   createdAt     DateTime   @default(now())
 
   events MonetizationEvent[]
+  ledger  RevenueLedger[]
 
   @@index([sessionId, status])
   @@index([userId, status])
@@ -639,31 +645,151 @@ model MessageTemplate {
   body        String
   footer      String?
   buttons     Json?
+  variables   Json?
   status      String   @default("DRAFT")
+  usageCount  Int      @default(0)
   waTemplateId String?
+  metaTemplateName String?
+  metaStatus  String?
+  metaRejectionReason String?
+  submittedAt DateTime?
+  metaUpdatedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  campaigns Campaign[]
+
   @@index([status])
   @@index([category])
+  @@index([metaStatus])
 }
 
 model MessageLog {
-  id          String   @id @default(cuid())
-  direction   String
-  phone       String
-  userId      String?
-  type        String
-  status      String   @default("sent")
-  content     Json
-  templateId  String?
-  waMessageId String?
-  error       String?
-  metadata    Json?
-  createdAt   DateTime @default(now())
+  id                 String   @id @default(cuid())
+  direction          String
+  phone              String
+  userId             String?
+  type               String
+  status             String   @default("sent")
+  content            Json
+  templateId         String?
+  campaignDeliveryId String?
+  waMessageId        String?
+  error              String?
+  metadata           Json?
+  createdAt          DateTime @default(now())
 
   @@index([direction, createdAt])
   @@index([phone])
   @@index([status])
   @@index([templateId])
+  @@index([campaignDeliveryId])
+}
+
+// ============================================================
+// MARKETING CAMPAIGNS
+// ============================================================
+
+model Campaign {
+  id                 String             @id @default(cuid())
+  name               String
+  description        String?
+  messageType        String             @default("text")
+  templateId         String?
+  template           MessageTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  messageBody        String?
+  headerText         String?
+  footerText         String?
+  audience           String             @default("all_users")
+  audienceFilter     Json?
+  scheduleType       String             @default("now")
+  scheduledAt        DateTime?
+  cronExpression     String?
+  rateLimitPerMinute Int                @default(60)
+  status             String             @default("DRAFT")
+  totalRecipients    Int                @default(0)
+  sentCount          Int                @default(0)
+  deliveredCount     Int                @default(0)
+  readCount          Int                @default(0)
+  failedCount        Int                @default(0)
+  skippedCount       Int                @default(0)
+  lastRunAt          DateTime?
+  nextRunAt          DateTime?
+  createdById        String?
+  createdBy          Admin?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  deliveries CampaignDelivery[]
+
+  @@index([status])
+  @@index([scheduleType, nextRunAt])
+  @@index([createdById])
+  @@index([scheduledAt])
+}
+
+model CampaignDelivery {
+  id            String   @id @default(cuid())
+  campaignId    String
+  campaign      Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  phone         String
+  status        String   @default("queued")
+  messageLogId  String?
+  error         String?
+  attempt       Int      @default(0)
+  scheduledFor  DateTime?
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([campaignId, status])
+  @@index([status, scheduledFor])
+  @@index([userId])
+}
+
+// ============================================================
+// REVENUE / MONETIZATION LEDGER
+// ============================================================
+
+model RevenueLedger {
+  id                String           @id @default(cuid())
+  type              String           @default("AUTO")
+  providerId        String?
+  provider          AdProvider?      @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  sessionId         String?
+  session           Session?         @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userId            String?
+  user              User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  gateId            String?
+  gate              MonetizationGate? @relation(fields: [gateId], references: [id], onDelete: SetNull)
+  currency          String           @default("USD")
+  revenueAmount     Float            @default(0)
+  payoutAmount      Float            @default(0)
+  revenueShare      Float            @default(0)
+  status            String           @default("pending")
+  providerReference String?
+  notes             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([status, createdAt])
+  @@index([providerId, createdAt])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([gateId])
+}
+
+// ============================================================
+// ANALYTICS SNAPSHOTS
+// ============================================================
+
+model AnalyticsSnapshot {
+  id        String   @id @default(cuid())
+  date      DateTime @unique
+  data      Json
+  createdAt DateTime @default(now())
 }

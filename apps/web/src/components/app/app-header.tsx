@@ -3,14 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { FolderOpen, HelpCircle, Home, MessageCirclePlus, Menu, ShieldQuestion, Trophy, X } from "lucide-react";
+import { FolderOpen, HelpCircle, Home, MessageCirclePlus, Menu, ShieldQuestion, Trophy, X, Flag, FolderPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
   { href: "/app", label: "Dashboard", icon: Home },
   { href: "/app/categories", label: "Categories", icon: FolderOpen },
-  { href: "/app/contribute", label: "Contribute", icon: MessageCirclePlus },
   { href: "/app/contributions", label: "My Questions", icon: ShieldQuestion },
+  { href: "/app/reports", label: "Reports", icon: Flag },
+  { href: "/app/requests", label: "Requests", icon: FolderPlus },
+  { href: "/app/contribute", label: "Contribute", icon: MessageCirclePlus },
   { href: "/app/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/app/help", label: "Help", icon: HelpCircle },
 ];

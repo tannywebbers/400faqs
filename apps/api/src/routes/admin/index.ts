@@ -21,6 +21,9 @@ import { uploadsRouter } from "./uploads";
 import { contactRouter } from "./contact";
 import { adminsRouter } from "./admins";
 import { monetizationAdminRouter } from "./monetization";
+import { analyticsRouter } from "./analytics";
+import { campaignsRouter } from "./campaigns";
+import { revenueRouter } from "./revenue";
 
 export const adminRouter = Router();
 
@@ -47,3 +50,6 @@ adminRouter.use("/uploads", uploadsRouter);
 adminRouter.use("/contact", contactRouter);
 adminRouter.use("/admins", adminsRouter);
 adminRouter.use("/monetization", monetizationAdminRouter);
+adminRouter.use("/analytics", analyticsRouter);
+adminRouter.use("/campaigns", campaignsRouter);
+adminRouter.use("/revenue", revenueRouter);

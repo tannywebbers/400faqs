@@ -1,0 +1,38 @@
+PHASE 10 — DATA, TEMPLATES & GROWTH
+=====================================
+
+Scope
+-----
+1. Advanced Analytics Dashboard (platform / WhatsApp / AI / categories / top questions /
+   snapshots, date ranges, charts, CSV export).
+2. Marketing Campaign system (audiences, create/edit/start/pause/resume/cancel,
+   rate-limited dispatch, delivery tracking, per-recipient details, CSV export).
+3. WhatsApp Template Management (validate / submit / meta-status / preview / stats).
+4. Revenue / Monetization Ledger (settings, stats, ledger list, manual entry, status
+   updates, backfill, CSV export).
+5. /app improvements: contributions search + AppHeader Reports/Requests links.
+
+Constraints
+-----------
+- No new npm dependencies (recharts v2.13.0 already in root node_modules; BullMQ + Redis
+  reused for "campaign" and "snapshot" queues).
+- All three packages typecheck with 0 errors: packages/db, apps/api, apps/web.
+- DATABASE_URL is unset in this environment: `npx prisma generate` succeeded but
+  `prisma db push` / migrations cannot run (documented in PHASE10RESULT.TXT).
+
+Status (in-progress build)
+---------------------------
+- [x] Exploration & design (schemas, services, routes, UI)
+- [x] Schema edits + prisma generate
+- [x] Seed settings (campaign.*, monetization.*, analytics.*)
+- [x] Analytics + snapshot services, admin analytics routes
+- [x] Revenue ledger service + monetization hook + admin routes
+- [x] Template service (validate/submit/meta-status) + whatsapp admin routes
+- [x] Campaign service + worker + crons + admin routes
+- [x] Webhook statuses -> CampaignDelivery sync
+- [x] Admin UI: analytics, campaigns (list + detail), revenue pages
+- [x] WhatsApp templates tab (stats/submit/meta-status/usage)
+- [x] Admin nav entries
+- [x] /app improvements (contributions q search, AppHeader links)
+- [x] Typechecks (db 0, api 0, web 0)
+- [x] PHASE10RESULT.TXT written

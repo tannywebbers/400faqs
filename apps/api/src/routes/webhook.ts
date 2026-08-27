@@ -49,6 +49,27 @@ async function clearProcessed(eventId: string): Promise<void> {
   await prisma.processedEvent.deleteMany({ where: { eventId } }).catch(() => undefined);
 }
 
+// Campaign delivery tracking: reflect tombstone statuses from the webhook
+// onto CampaignDelivery rows and the parent campaign counters.
+async function syncDeliveryFromStatus(deliveryId: string, status: string): Promise<void> {
+  const patch: Record<string, unknown> = { status };
+  const now = new Date();
+  if (status === "delivered") patch.deliveredAt = now;
+  else if (status === "read") patch.readAt = now;
+
+  await prisma.campaignDelivery.update({ where: { id: deliveryId }, data: patch }).catch(() => undefined);
+
+  const campaignId = (await prisma.campaignDelivery.findUnique({ where: { id: deliveryId }, select: { campaignId: true } }))?.campaignId;
+  if (!campaignId) return;
+
+  const num: Record<string, number> = {};
+  if (status === "delivered") num.deliveredCount = 1;
+  else if (status === "read") num.readCount = 1;
+  if (Object.keys(num).length > 0) {
+    await prisma.campaign.update({ where: { id: campaignId }, data: num }).catch(() => undefined);
+  }
+}
+
 // Verification (GET) - WhatsApp requires this on the same URL
 webhookRouter.get("/whatsapp", (req, res) => {
   const result = verifyWebhook(req.query as Record<string, unknown>);
@@ -75,10 +96,18 @@ webhookRouter.post("/whatsapp", async (req, res) => {
           logger.debug("[whatsapp] delivery status", value.statuses.map((s) => ({ id: s.id, status: s.status })));
           for (const status of value.statuses) {
             if (status.id && status.status) {
-              await prisma.messageLog.updateMany({
-                where: { waMessageId: status.id },
-                data: { status: status.status },
-              }).catch(() => undefined);
+              const updated = await prisma.messageLog
+                .updateMany({ where: { waMessageId: status.id }, data: { status: status.status } })
+                .catch(() => undefined);
+              if (updated && updated.count > 0) {
+                const log = await prisma.messageLog.findFirst({
+                  where: { waMessageId: status.id },
+                  select: { campaignDeliveryId: true },
+                });
+                if (log?.campaignDeliveryId) {
+                  await syncDeliveryFromStatus(log.campaignDeliveryId, status.status);
+                }
+              }
             }
           }
         }

@@ -50,6 +50,19 @@ const DEFAULT_SETTINGS: SettingInput[] = [
   { key: "ai.model", value: "gemini-2.0-flash", type: "string", group: "ai", description: "Google AI model used for duplicate detection", public: false },
   { key: "ai.maxCandidates", value: "5", type: "number", group: "ai", description: "Max candidate questions sent to Google AI", public: false },
 
+  // ===== Marketing campaigns =====
+  { key: "campaign.autoProcess", value: "true", type: "boolean", group: "campaign", description: "Automatically process due campaigns (scheduled + recurring). Disable to run campaigns manually", public: false },
+  { key: "campaign.rateLimitPerMinute", value: "60", type: "number", group: "campaign", description: "Default WhatsApp message throughput cap per campaign (rate-limit protection)", public: false },
+  { key: "campaign.maxRecipients", value: "5000", type: "number", group: "campaign", description: "Hard cap on recipients resolved per campaign", public: false },
+
+  // ===== Monetization revenue ledger =====
+  { key: "monetization.revenuePerVerification", value: "0.25", type: "number", group: "monetization", description: "Recorded revenue per completed verification", public: false },
+  { key: "monetization.payoutRate", value: "0.5", type: "number", group: "monetization", description: "Estimated payout share (0-1) passed to the ad provider", public: false },
+
+  // ===== Analytics snapshots =====
+  { key: "analytics.snapshotEnabled", value: "true", type: "boolean", group: "analytics", description: "Store daily platform snapshots to power long-range trend charts", public: false },
+  { key: "analytics.snapshotRetentionDays", value: "365", type: "number", group: "analytics", description: "How many days of snapshots to keep", public: false },
+
   // ===== Uploads =====
   { key: "uploads.maxSizeMB", value: "5", type: "number", group: "uploads", description: "Max screenshot upload size in MB", public: true },
   { key: "uploads.allowedTypes", value: "image/png,image/jpeg,image/webp,image/gif", type: "string", group: "uploads", description: "Comma separated allowed MIME types", public: false },

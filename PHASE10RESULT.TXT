@@ -1,0 +1,184 @@
+Phase 10 Complete — Data, Templates & Growth: Advanced Analytics Dashboard, Marketing
+Campaigns (scheduled, rate-limited bulk WhatsApp dispatch with per-recipient delivery
+tracking), WhatsApp Template Management & Meta Approval Workflow, and Revenue/Monetization
+Ledger
+
+BUILD-ONLY PHASE: NO TESTING WAS PERFORMED. No runtime, API, WhatsApp, BullMQ, cron or
+database tests were executed. Verify everything manually before going live.
+
+What was built:
+
+1. ADVANCED ANALYTICS DASHBOARD
+   New service apps/api/src/services/analytics.ts (extended) + snapshot.ts (new).
+   - /admin/analytics page with date-range presets (7/14/30/60/90d, 1Y), platform totals
+     (users, questions, sessions, moves, contributions, reports, categoryRequests,
+     messages, revenueLedger, campaigns), recharts Line/Bar/Area charts, WhatsApp section
+     (outbound/inbound volume, delivery by status, last-7-day stacked area), AI
+     duplicate-detection section (checked/duplicates/review-required/avg score,
+     classification bar chart), category performance table, top questions table, and an
+     editable-point-in-time snapshot capture.
+   - Daily snapshots: new AnalyticsSnapshot model (id, date unique, data Json). Captured by
+     a daily cron (00:15, enqueues to the new "snapshot" BullMQ queue) plus a manual
+     "Capture Now" button. Snapshot series powers long-range cumulative trend charts.
+     Retention cleanup deletes beyond analytics.snapshotRetentionDays.
+   - Admin routes: GET / : GET totals+series; /whatsapp; /ai; /categories; /questions;
+     /snapshots (series); /snapshots/latest; POST /snapshots/capture; GET /export (CSV of
+     the day series with TOTAL row); /funnel (session funnel day series for future UI).
+   - CSV export helper on the page downloads analytics-<from>-<to>.csv.
+   - Recharts (v2.13.0, already hoisted in root node_modules, previously unused) powers all
+     charts — no new npm dependency.
+
+2. MARKETING CAMPAIGNS (bulk WhatsApp with rate limiting + delivery tracking)
+   New Campaign + CampaignDelivery models and apps/api/src/services/campaign.ts, worker
+   apps/api/src/workers/campaign.worker.ts, and the "campaign" BullMQ queue.
+   - Lifecycle: DRAFT -> SCHEDULED/RUNNING -> PAUSED -> resumed -> COMPLETED/CANCELLED.
+     Audiences: all_users, active_users (lastActiveDays), players (minSessions +
+     lastActiveDays), contributors (minContributions), specific_users (phones CSV),
+     seed_invites (creators of WAITING sessions). Audience resolution caps at
+     campaign.maxRecipients. POST /audience/preview resolves a live count + sample before
+     creating a campaign.
+   - Scheduling: "now", "scheduled" (scheduledAt) or "recurring" (5-field cron). A single
+     concurrent cron (1-minute, dynamic import advanceDueCampaigns) promotes due SCHEDULED
+     campaigns to RUNNING when campaign.autoProcess is enabled. recurring runs compute the
+     next run with nextCronRun and re-arm themselves after each completion.
+   - Dispatch: startCampaign resolves recipients into CampaignDelivery rows (queued) then
+     enqueues a "dispatch" job. processCampaignBatch sends up to rateLimitPerMinute
+     messages, then re-enqueues a dispatch job with a 60s delay while queued work remains.
+     This smooths throughput (WhatsApp protection). sendDelivery resolves body from
+     plain text or the linked approved template, increments template usage, links the
+     created MessageLog row to the delivery (campaignDeliveryId) and bumps campaign
+     counters.
+   - Delivery tracking: per-recipient statuses queued -> sent -> delivered -> read plus
+     failed (with error) and skipped (cancel). The inbound webhook statuses handler now
+     syncs delivered/read back onto CampaignDelivery rows and the parent campaign counters
+     via syncDeliveryFromStatus (guards duplicates so counters stay accurate).
+   - Starting a campaign replaces prior deliveries; cancel marks queued ones skipped.
+     completeCampaign re-arms recurring campaigns as SCHEDULED.
+   - Admin routes: CRUD (merge, guarded by assertEditable for RUNNING/CANCELLED), /stats,
+     /audience/preview, /:id/start|pause|resume|cancel (audit-logged), /:id/deliveries
+     (status + phone filters, pagination), /:id/export CSV.
+   - Admin UI: /admin/campaigns (stat cards, create form with audience preview & template
+     picker, lifecycle row actions, list pagination) and /admin/campaigns/[id] (detail,
+     delivery progress bar, per-recipient table with status pills + phone search + filters,
+     CSV export, start/pause/resume/cancel).
+
+3. WHATSAPP TEMPLATE MANAGEMENT & META APPROVAL WORKFLOW
+   Extended MessageTemplate (variables, usageCount, metaTemplateName, metaStatus,
+   metaRejectionReason, submittedAt, metaUpdatedAt, waTemplateId + Campaign relation) and
+   apps/api/src/services/template.service.ts.
+   - validateTemplate: snake_case name <=100, header <=60, body <=1024, footer <=60 and no
+     variables, 0-3 buttons title <=20, variables {{N}} contiguous from {{1}},
+     numeric-only-header warning. POST /templates/validate returns validation + Meta
+     payload preview (previewTemplatePayload).
+   - Submit-to-Meta is best-effort: when a WhatsApp Business token + business account ID
+     are configured it POSTs real components to the Graph API (
+     /{v}/{WABA_ID}/message_templates). Success marks the template APPROVED with the remote
+     id; any failure (or no credentials) records locally as SUBMITTED with a warning and
+     lets the admin complete it from the Meta dashboard or set the Meta status manually.
+   - markTemplateMetaStatus lets admins reflect PENDING/APPROVED/REJECTED (with a
+     rejection reason) /PAUSED/DISABLED/IN_APPEAL and consistently maps those back to the
+     local status (APPROVED, REJECTED, SUBMITTED).
+   - GET /templates/stats (counts per status + totalUsage); GET /templates now also
+     returns _count.campaigns; usageCount increments on every outbound send that uses a
+     template (campaign + regular sends).
+   - Admin UI: Templates tab gained a stats row (total/approved/pending/total usage),
+     per-row "Submit to Meta" action, a Meta-status select (Approve/Reject/Pending), meta
+     status + rejection-reason pills, and a Uses column (with linked campaigns).
+
+4. REVENUE / MONETIZATION LEDGER
+   New RevenueLedger model and apps/api/src/services/revenue.ts.
+   - AUTO rows: recordVerifiedRevenue runs from the existing MonetizationGate verify flow
+     (monetization.ts) — idempotent per gate (one row), computes revenueAmount from
+     monetization.revenuePerVerification and payoutAmount from payoutRate and stores the
+     provider/share/session/user references. Pending -> confirmed -> paid lifecycle.
+   - MANUAL rows: addManualLedgerEntry for adjustments/refunds/credits (amount, payout,
+     currency, provider reference, notes, optional provider/session/user links and status).
+   - Settings: monetization.revenuePerVerification (0.25), monetization.payoutRate (0.5),
+     monetization.currency (USD) read via updateRevenueSettings / getRevenueSettings and
+     surfaced in a settings form.
+   - Backfill: backfillRevenueFromEvents replays historical VERIFICATION_SUCCESS
+     MonetizationEvents into AUTO rows (used when the ledger is first enabled).
+   - Stats + list + CSV export with date/status filters; status update endpoint validates
+     transitions. Mounted at /api/admin/revenue/* behind requireAuth; every mutation is
+     audit-logged.
+   - Admin UI: /admin/revenue page (settings form, revenue/payout/pending/paid stat cards,
+     manual entry card, ledger table with date/status filters, per-row status select,
+     backfill button, CSV export).
+
+5. /app IMPROVEMENTS
+   - GET /api/public/contributions now accepts a q param (case-insensitive contains on the
+     question text) and the /app/contributions page gained a live search box over your
+     submissions in addition to the existing status filters.
+   - AppHeader links now include Reports (/app/reports) and Requests (/app/requests) and
+     drop the separate Contribute emphasis (still present) so the full user journey is
+     one tap away.
+
+6. INFRASTRUCTURE
+   - QUEUES now include "campaign" and "snapshot"; campaign.worker.ts (start/dispatch) and
+     analytics.worker.ts (capture) are registered in workers/index.ts.
+   - index.ts crons: 1-minute campaign advance (dynamic import advanceDueCampaigns with
+     timeToExit) and daily 00:15 snapshot enqueue (jobId "snapshot-daily").
+   - Seed (packages/db/prisma/seed.ts) adds the Phase 10 settings: campaign.autoProcess
+     (true), campaign.rateLimitPerMinute (60), campaign.maxRecipients (5000),
+     monetization.revenuePerVerification (0.25), monetization.payoutRate (0.5),
+     monetization.currency (USD), analytics.snapshotEnabled (true),
+     analytics.snapshotRetentionDays (365).
+   - Schema changes landed in package/db and `npx prisma generate` succeeded (Prisma
+     v5.22.0). DATABASE_URL is NOT set in this environment, so `prisma db push` /
+     `prisma migrate dev` could not be run — run one (or a real migration) on a machine
+     with DATABASE_URL before going live.
+
+DATABASE NOTE: `prisma db push` / migrations cannot run here (DATABASE_URL unset). The
+schema was generated successfully; apply the schema to the database in your environment.
+
+Typecheck results (all three packages, run after the build):
+- packages/db: Clean (0 errors)
+- apps/api:   Clean (0 errors)
+- apps/web:   Clean (0 errors)
+
+Files modified:
+- packages/db/prisma/schema.prisma — MessageTemplate (+variables/usageCount/meta* fields,
+  waTemplateId, campaigns relation), MessageLog (+campaignDeliveryId), new models Campaign,
+  CampaignDelivery, RevenueLedger, AnalyticsSnapshot, User/Session/MonetizationGate/
+  AdProvider relations
+- packages/db/prisma/seed.ts — Phase 10 default settings
+- apps/api/src/lib/queue.ts — QUEUES campaign + snapshot
+- apps/api/src/services/analytics.ts — parseDateRange, buildDaySeries, countMap,
+  getAdminAnalytics, getWhatsAppStats, getAIStats, getCategoryAnalytics, getTopQuestions
+- apps/api/src/services/snapshot.ts — snapshot settings, capture/series/latest/cleanup
+- apps/api/src/services/campaign.ts — settings, cron (nextCronRun), audiences, lifecycle,
+  rate-limited dispatch, deliveries, stats
+- apps/api/src/services/template.service.ts — validate/list/stats/submit/meta-status/
+  preview/usage
+- apps/api/src/services/revenue.ts — settings, AUTO/MANUAL rows, backfill, stats,
+  ledger list, status updates, CSV export
+- apps/api/src/services/monetization.ts — calls recordVerifiedRevenue on success
+- apps/api/src/index.ts — campaign-advance (1-min) and snapshot (daily 00:15) crons
+- apps/api/src/routes/webhook.ts — syncDeliveryFromStatus + statuses handling
+- apps/api/src/routes/public.ts — q search on contributions
+- apps/api/src/routes/admin/whatsapp.ts — template stats/validate/submit/meta-status/preview
+- apps/web/src/components/app/app-header.tsx — Reports + Requests links
+- apps/web/src/app/app/contributions/page.tsx — live search over your questions
+- apps/web/src/app/admin/layout.tsx — Analytics/Campaigns/Revenue nav entries
+
+Files created:
+- apps/api/src/services/snapshot.ts
+- apps/api/src/services/campaign.ts
+- apps/api/src/services/revenue.ts
+- apps/api/src/workers/campaign.worker.ts
+- apps/api/src/workers/analytics.worker.ts
+- apps/api/src/routes/admin/analytics.ts
+- apps/api/src/routes/admin/campaigns.ts
+- apps/api/src/routes/admin/revenue.ts
+- apps/web/src/app/admin/analytics/page.tsx
+- apps/web/src/app/admin/campaigns/page.tsx
+- apps/web/src/app/admin/campaigns/[id]/page.tsx
+- apps/web/src/app/admin/revenue/page.tsx
+
+Next steps:
+- Live Meta template sync (poll message_templates from Graph to auto-refresh metaStatus)
+- Campaign A/B variants, scheduled pause windows, and per-phone opt-out handling
+- Ad network integrations (Google AdSense) and per-row payout settlement exports
+- Snapshot-powered long-range trends on the public dashboard
+
+NO TESTING WAS PERFORMED — BUILD ONLY PHASE.

@@ -60,7 +60,22 @@ type MessageTemplate = {
   footer: string | null;
   buttons: unknown;
   status: string;
+  metaStatus: string | null;
+  metaRejectionReason: string | null;
+  usageCount: number;
+  _count: { campaigns: number };
   createdAt: string;
+};
+
+type TemplateStats = {
+  total: number;
+  draft: number;
+  active: number;
+  submitted: number;
+  approved: number;
+  rejected: number;
+  archived: number;
+  totalUsage: number;
 };
 
 type MessageLogEntry = {
@@ -148,6 +163,11 @@ export default function AdminWhatsAppPage() {
     queryFn: () => apiFetch("/api/admin/whatsapp/templates", { token }),
   });
 
+  const templateStatsQuery = useQuery<TemplateStats>({
+    queryKey: ["admin-wa-template-stats"],
+    queryFn: () => apiFetch("/api/admin/whatsapp/templates/stats", { token }),
+  });
+
   const messagesQuery = useQuery<{ data: MessageLogEntry[]; total: number; totalPages: number }>({
     queryKey: ["admin-wa-messages", msgFilter, msgPage],
     queryFn: () => {
@@ -217,6 +237,23 @@ export default function AdminWhatsAppPage() {
   const deleteTemplateMutation = useMutation({
     mutationFn: (id: string) => apiFetch(`/api/admin/whatsapp/templates/${id}`, { method: "DELETE", token }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-wa-templates"] }),
+  });
+
+  const submitTemplateMutation = useMutation({
+    mutationFn: (id: string) => apiFetch(`/api/admin/whatsapp/templates/${id}/submit`, { method: "POST", token }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-wa-templates"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-wa-template-stats"] });
+    },
+  });
+
+  const metaStatusMutation = useMutation({
+    mutationFn: ({ id, status, reason }: { id: string; status: string; reason?: string }) =>
+      apiFetch(`/api/admin/whatsapp/templates/${id}/meta-status`, { method: "POST", body: { metaStatus: status, reason }, token }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-wa-templates"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-wa-template-stats"] });
+    },
   });
 
   // ── Helpers ──────────────────────────────────────────────
@@ -526,6 +563,44 @@ export default function AdminWhatsAppPage() {
 
         {/* ── Templates ─────────────────────────────────── */}
         <TabsContent value="templates" className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardContent className="flex items-center gap-4 p-5">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand/10 text-brand"><FileText className="h-5 w-5" /></span>
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Templates</p>
+                  <p className="font-semibold">{templateStatsQuery.data?.total ?? "—"}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="flex items-center gap-4 p-5">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-green-100 text-green-700"><CheckCircle2 className="h-5 w-5" /></span>
+                <div>
+                  <p className="text-sm text-muted-foreground">Approved (Meta)</p>
+                  <p className="font-semibold">{templateStatsQuery.data?.approved ?? "—"}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="flex items-center gap-4 p-5">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-100 text-orange-600"><Clock className="h-5 w-5" /></span>
+                <div>
+                  <p className="text-sm text-muted-foreground">Pending / Submitted</p>
+                  <p className="font-semibold">{templateStatsQuery.data?.submitted ?? "—"}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="flex items-center gap-4 p-5">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-100 text-red-600"><AlertTriangle className="h-5 w-5" /></span>
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Usage</p>
+                  <p className="font-semibold">{templateStatsQuery.data?.totalUsage?.toLocaleString() ?? "—"}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><FileText className="h-4 w-4" /> Message Templates</CardTitle>
@@ -602,64 +677,106 @@ export default function AdminWhatsAppPage() {
               ) : !(templatesQuery.data?.data ?? []).length ? (
                 <EmptyState title="No templates" description="Create your first message template above." className="py-12" />
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>Body Preview</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(templatesQuery.data?.data ?? []).map((t) => (
-                      <TableRow key={t.id}>
-                        <TableCell className="font-medium">{t.name}</TableCell>
-                        <TableCell><Badge variant="gray">{t.category}</Badge></TableCell>
-                        <TableCell className="max-w-[200px] truncate text-muted-foreground text-sm">{t.body}</TableCell>
-                        <TableCell>
-                          <Badge variant={t.status === "ACTIVE" ? "green" : t.status === "DRAFT" ? "orange" : "gray"}>
-                            {t.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{timeAgo(t.createdAt)}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setEditingTemplate(t.id);
-                                setTemplateForm({
-                                  name: t.name,
-                                  body: t.body,
-                                  header: t.header ?? "",
-                                  footer: t.footer ?? "",
-                                  category: t.category,
-                                  language: t.language,
-                                });
-                              }}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-red-600 hover:text-red-700"
-                              onClick={() => {
-                                if (confirm(`Delete template "${t.name}"?`)) deleteTemplateMutation.mutate(t.id);
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
+<Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Body Preview</TableHead>
+                        <TableHead>Meta Status</TableHead>
+                        <TableHead>Uses</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {(templatesQuery.data?.data ?? []).map((t) => (
+                        <TableRow key={t.id}>
+                          <TableCell className="font-medium">{t.name}</TableCell>
+                          <TableCell><Badge variant="gray">{t.category}</Badge></TableCell>
+                          <TableCell className="max-w-[180px] truncate text-muted-foreground text-sm">{t.body}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <Badge variant={t.metaStatus === "APPROVED" ? "green" : t.metaStatus === "REJECTED" || t.status === "REJECTED" ? "red" : t.status === "SUBMITTED" || t.metaStatus === "PENDING" ? "orange" : "gray"}>
+                                {t.metaStatus ?? t.status}
+                              </Badge>
+                              {(t.metaRejectionReason ?? (t.status === "REJECTED" ? t.metaRejectionReason : null)) && (
+                                <span className="max-w-[140px] truncate text-[10px] text-red-600" title={t.metaRejectionReason ?? undefined}>
+                                  {t.metaRejectionReason}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm">{t.usageCount ?? 0}</span>
+                            {t._count?.campaigns > 0 && <span className="ml-1 text-[10px] text-muted-foreground">({t._count.campaigns} camp)</span>}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{timeAgo(t.createdAt)}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {(t.status === "DRAFT" || t.status === "ACTIVE" || t.status === "SUBMITTED") && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-brand"
+                                  disabled={submitTemplateMutation.isPending}
+                                  onClick={() => submitTemplateMutation.mutate(t.id)}
+                                >
+                                  {submitTemplateMutation.isPending ? "…" : "Submit to Meta"}
+                                </Button>
+                              )}
+                              {["DRAFT", "ACTIVE", "SUBMITTED", "APPROVED", "REJECTED"].includes(t.status) && (
+                                <select
+                                  value={t.metaStatus ?? t.status}
+                                  disabled={metaStatusMutation.isPending}
+                                  onChange={(e) => {
+                                    if (e.target.value === "REJECTED") {
+                                      const reason = prompt("Rejection reason (optional):");
+                                      metaStatusMutation.mutate({ id: t.id, status: e.target.value, reason: reason ?? undefined });
+                                    } else {
+                                      metaStatusMutation.mutate({ id: t.id, status: e.target.value });
+                                    }
+                                  }}
+                                  className="h-8 rounded-md border border-input bg-background px-1.5 text-xs"
+                                >
+                                  <option value="PENDING">Pending</option>
+                                  <option value="APPROVED">Approve</option>
+                                  <option value="REJECTED">Reject</option>
+                                </select>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setEditingTemplate(t.id);
+                                  setTemplateForm({
+                                    name: t.name,
+                                    body: t.body,
+                                    header: t.header ?? "",
+                                    footer: t.footer ?? "",
+                                    category: t.category,
+                                    language: t.language,
+                                  });
+                                }}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700"
+                                onClick={() => {
+                                  if (confirm(`Delete template "${t.name}"?`)) deleteTemplateMutation.mutate(t.id);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
               )}
             </CardContent>
           </Card>

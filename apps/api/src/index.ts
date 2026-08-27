@@ -36,6 +36,26 @@ async function main() {
     }
   });
 
+  // Cron: promote due scheduled campaigns every minute
+  cron.schedule("* * * * *", async () => {
+    try {
+      const { advanceDueCampaigns } = await import("./services/campaign");
+      const due = await advanceDueCampaigns();
+      if (due > 0) logger.info("[cron] advanced due campaigns", { count: due });
+    } catch (err) {
+      logger.warn("[cron] campaign advance failed", (err as Error).message);
+    }
+  });
+
+  // Cron: daily analytics snapshot at 00:15
+  cron.schedule("15 0 * * *", async () => {
+    try {
+      await enqueue("snapshot", "capture", {}, { attempts: 1, jobId: "snapshot-daily" });
+    } catch (err) {
+      logger.warn("[cron] snapshot enqueue failed", (err as Error).message);
+    }
+  });
+
   // Cron: update deployment timestamp once at startup
   await prisma.setting.upsert({
     where: { key: "system.lastDeployment" },

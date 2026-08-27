@@ -258,9 +258,11 @@ publicRouter.get("/contributions", async (req, res) => {
   if (status && !contributionStatuses.includes(status as (typeof contributionStatuses)[number])) {
     throw new AppError(400, `Invalid status. Allowed: ${contributionStatuses.join(", ")}`);
   }
+  const q = String(req.query.q ?? "").trim();
 
   const where: Record<string, unknown> = { userPhone: phone };
   if (status) where.status = status;
+  if (q) where.question = { contains: q, mode: "insensitive" };
 
   const [total, items] = await Promise.all([
     prisma.contribution.count({ where }),
