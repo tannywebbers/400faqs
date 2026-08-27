@@ -24,3 +24,19 @@ export const contributionLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, error: { message: "Too many submissions, slow down." } },
 });
+
+export const monetizationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 45,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { success: false, error: { message: "Too many requests, slow down." } },
+});
+
+export const codeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 12,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { success: false, error: { message: "Too many code requests, try again later." } },
+});

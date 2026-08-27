@@ -1,0 +1,185 @@
+Phase 9 Complete — User Content Platform: Community Contribution Pipeline with Mandatory
+Google AI Duplicate Detection, Question Reporting, Category Requests, Contribution/Report/
+Request History & the Complete /app User Experience
+
+BUILD-ONLY PHASE: NO TESTING WAS PERFORMED. No runtime, API, WhatsApp, Google AI or
+database tests were executed. Verify everything manually before going live.
+
+What was built:
+
+1. GOOGLE AI DUPLICATE DETECTION (MANDATORY)
+   New dedicated service: apps/api/src/services/question-similarity.ts
+   - Candidate search in the DB FIRST (same category, prefer same type; top
+     maxCandidates ranked by a local Jaccard+distance heuristic), then send only those
+     candidates to Google AI for classification — cheap, fast, and private.
+   - Google AI structured-JSON output (temperature 0, responseMimeType application/json):
+       { "classification": "EXACT_DUPLICATE" | "VERY_SIMILAR" | "UNIQUE",
+         "confidence": 0..1, "matchScore": 0..1,
+         "matches": [{ "questionId", "similarity", "reason" }] }
+   - No new npm dependency: the API talks to the official Google REST endpoint
+     https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent with
+     header x-goog-api-key, generationConfig temperature 0 + responseMimeType json, and an
+     AbortController timeout. The key is env-only (GOOGLE_AI_API_KEY) — never stored in the
+     DB, never returned in any API response or WhatsApp message.
+   - Decision matrix (apps/api/src/services/moderation.ts):
+       * Deterministic normalized exact match (strip punctuation/case/spaces) -> REJECTED
+         (auto, stored duplicateOfId) — never relies on AI being reachable.
+       * AI EXACT_DUPLICATE with confidence >= exactThreshold -> REJECTED.
+       * VERY_SIMILAR with score >= similarThreshold -> PENDING manual review (admins
+         notified, friendly reviewReason stored in aiResult).
+       * UNIQUE -> APPROVED when auto-approve is ON; otherwise PENDING.
+       * AI unavailable / malformed / error -> safe fallback: PENDING review with a
+         friendly reviewReason. The pipeline NEVER auto-approves when review is required
+         and NEVER leaks AI/credential error details to the user.
+   - "PENDING_REVIEW" is mapped to the existing ContributionStatus.PENDING (no new enums).
+   - Admin approve path re-checks exact duplicates via recheckDuplicateBeforeApproval()
+     (race + manual-override guard) and always assigns a question number via
+     createApprovedQuestion() (3-attempt retry on the P2002 unique(number, categoryId)
+     conflict, increments category.questionCount). Pre-existing bug fixed: the old admin
+     approve flow created questions WITHOUT a number.
+   - OpenAI moderation (lib/ai.ts moderateContent) is KEPT for content moderation; only
+     duplicate detection moved to Google AI. Old OpenAI checkDuplicates is no longer used.
+
+2. NO SCHEMA CHANGES NEEDED
+   The existing schema already covers Phase 9: Contribution.aiResult Json, duplicateOfId,
+   aiScore, reviewedBy/reviewedAt, rejectionReason; QuestionReport.screenshotUrl/resolution/
+   resolvedBy + OPEN/IN_PROGRESS/RESOLVED/DISMISSED statuses; CategoryRequest.note;
+   Question.type TRUTH/DARE/NORMAL; ContributionStatus PENDING/APPROVED/REJECTED/FLAGGED.
+   Therefore NO prisma generate / db push was run (DATABASE_URL is not set in this
+   environment anyway). No migration is required for Phase 9.
+
+3. SETTINGS & CONFIG
+   - apps/api/src/config.ts: googleAi block (apiKey=GOOGLE_AI_API_KEY,
+     model=GOOGLE_AI_MODEL default gemini-2.0-flash, endpoint=GOOGLE_AI_ENDPOINT default
+     https://generativelanguage.googleapis.com/v1beta, timeoutMs=GOOGLE_AI_TIMEOUT_MS).
+   - apps/api/src/services/settings.ts: settingsToRecord() helper + updateManySettings()
+     now upserts public/group/description per entry.
+   - apps/api/src/routes/admin/settings.ts: update schema accepts optional public/group/
+     description per entry.
+   - packages/db/prisma/seed.ts: new ai.duplicateDetectionEnabled (true),
+     ai.model (gemini-2.0-flash), ai.maxCandidates (5) — all public:false. Reuses
+     contribution.autoApprove, contribution.aiThreshold (0.85), contribution.similarThreshold
+     (0.6), contribution.enabled and contribution.perDayLimit.
+   - IMPORTANT fix: moderation.ts now reads SERVER settings from getAllSettings()
+     (via settingsToRecord), NOT getPublicSettings(), so the seeded public:false keys
+     (autoApprove, thresholds, perDayLimit) actually take effect.
+
+4. BACKEND ROUTES
+   Public (apps/api/src/routes/public.ts):
+   - GET  /api/public/categories/:slug/questions — paginated category questions with
+     q / type / difficulty / sort (newest|plays) + category meta (incl. gameType).
+   - POST /api/public/contributions — submits through the full AI pipeline (type-aware:
+     TRUTH_DARE categories accept only TRUTH/DARE, default TRUTH when omitted; NORMAL
+     categories accept only NORMAL).
+   - GET  /api/public/contributions?phone (status filter, paginated, includes category,
+     duplicateOf text, and Google AI classification).
+   - GET  /api/public/contributions/:ticket — now returns type + classification + aiResult.
+   - GET  /api/public/reports?phone (status filter, paginated, includes category/question/
+     screenshot/resolution).
+   - GET  /api/public/category-requests?phone (status filter, paginated, includes note reply).
+   - GET  /api/public/profile?phone — user stats (sessions/answered/asked), badges,
+     contribution/report/categoryRequest counts, and recent activity; phone masked.
+   - GET  /api/public/categories (list) + /api/public/categories/:slug (detail) now expose
+     gameType (needed by the /app contribute form). Leaderboard/top-contributors trusted:
+     phones are masked server-side (leaderboard is aggregate-approved counts).
+   Admin (apps/api/src/routes/admin/contributions.ts): APPROVE performs the exact-dup
+   recheck, then createApprovedQuestion + badge awarding + audit log ("APPROVE"); REJECT
+   writes audit "REJECT" with a reason. Removed the bogus userBadge.upsert (badgeId "") no-op.
+   Identities are phone-based; every history/profile route requires the phone param and
+   only ever returns that phone's own records (no cross-user data), with masking applied.
+
+5. FRONTEND: ADMIN
+   - apps/web/src/app/admin/settings/page.tsx (rewritten): fixes the pre-existing bug where
+     the Setting[] array was treated as a record and PUT as an array. Now maps rows -> record,
+     renders grouped cards (existing groups + new Contributions and AI & Moderation groups
+     incl. contribution.autoApprove, thresholds, perDayLimit, ai.duplicateDetectionEnabled,
+     ai.model, ai.maxCandidates; Game/Uploads/WhatsApp groups; all seeded keys covered so
+     saving never deletes other settings), boolean fields via Radix Switch storing "1"/"0",
+     and PUTs { entries: [{ key, value, public, group }] } with correct public flags per key.
+     Alert notifies admins that the Google AI key is env-only.
+   - apps/web/src/app/admin/contributions/page.tsx: shows AI score + classification pill
+     (EXACT_DUPLICATE/VERY_SIMILAR/UNIQUE/review) and an Inspect dialog with moderation
+     details, classification + confidence + matched questions (text/type/similarity/reason)
+     and reviewReason, plus approve/reject (with reason) actions.
+
+6. FRONTEND: THE /app EXPERIENCE (new top-level /app route group, phone as identity)
+   Shared: hooks/use-phone (localStorage persistence), components/app/app-header (responsive
+   sticky nav + mobile menu), phone-gate (enter WhatsApp number gate + signed-in bar),
+   status-pill (status/type/AI classification badges), category-card.
+   Pages: /app (dashboard: stat tiles, recent contributions/reports/requests, badges, quick
+   actions, trending categories, game stats), /app/categories (search + 5 sorts + pagination),
+   /app/categories/[slug] (browse questions with type/difficulty/search/most-played filters,
+   category stats/rules/actions), /app/contribute (category-aware type selection via
+   gameType: TRUTH/DARE vs NORMAL, phone prefill, AI outcome, links to history),
+   /app/contributions (status-filtered history incl. AI classification, duplicate + rejection
+   notes), /app/report (screenshot upload, reason, ticket tracking), /app/reports (status-
+   filtered history + resolution), /app/request-category, /app/requests (status + moderation
+   note), /app/leaderboard (privacy-masked), /app/help + /app/help/[slug], /app/search.
+   Existing (public) pages are untouched; /app is the dedicated user use-case.
+
+7. SECURITY & AUDIT
+   - Google AI key: server-only env var; key never in code wires that reach the browser or
+     public API; AI errors sanitized into friendly reviewReason.
+   - Identity: phone (WhatsApp number); personal history endpoints take the phone as a query
+     param and return only that phone's data; leaderboard/top-contributors and profile mask
+     the number (e.g. 141******71).
+   - Contribution submission is rate limited (existing contributionLimiter); report uploads
+     go through the existing upload hardening (processImage + saveUploadRecord).
+   - Admin mutations (approve/reject/delete, settings update) still write prisma.auditLog.
+
+Typecheck results (all three packages):
+- packages/db: Clean (0 errors)
+- apps/api: Clean (0 errors)
+- apps/web: Clean (0 errors)
+
+Files modified:
+- apps/api/src/config.ts — googleAi config block + env wiring
+- apps/api/src/services/settings.ts — settingsToRecord(), SettingEntry, richer updateManySettings
+- apps/api/src/routes/admin/settings.ts — optional public/group/description per entry
+- apps/api/src/services/moderation.ts — full rewrite: decision matrix, type compatibility,
+  safe approval via createApprovedQuestion, friendly PENDING messages, recheck before approval
+- apps/api/src/routes/admin/contributions.ts — approve = recheck + safe approve + badges + audit
+- apps/api/src/routes/public.ts — category questions, per-phone history, profile, masked phones,
+  gameType exposure, richer contribution detail
+- packages/db/prisma/seed.ts — ai.* default settings (public:false)
+- apps/web/src/app/admin/settings/page.tsx — rewritten settings UI + AI & Moderation group
+- apps/web/src/app/admin/contributions/page.tsx — AI classification + Inspect dialog
+- apps/web/src/app/app/layout.tsx — /app shell (Header + Footer)
+
+Files created:
+- apps/api/src/services/question-similarity.ts — Google AI duplicate detection engine
+- apps/web/src/hooks/use-phone.ts — persisted phone identity hook
+- apps/web/src/components/app/app-header.tsx
+- apps/web/src/components/app/phone-gate.tsx
+- apps/web/src/components/app/status-pill.tsx
+- apps/web/src/components/app/category-card.tsx
+- apps/web/src/app/app/page.tsx (dashboard)
+- apps/web/src/app/app/categories/page.tsx
+- apps/web/src/app/app/categories/[slug]/page.tsx
+- apps/web/src/app/app/contribute/page.tsx
+- apps/web/src/app/app/contributions/page.tsx
+- apps/web/src/app/app/report/page.tsx
+- apps/web/src/app/app/reports/page.tsx
+- apps/web/src/app/app/request-category/page.tsx
+- apps/web/src/app/app/requests/page.tsx
+- apps/web/src/app/app/leaderboard/page.tsx
+- apps/web/src/app/app/help/page.tsx
+- apps/web/src/app/app/help/[slug]/page.tsx
+- apps/web/src/app/app/search/page.tsx
+
+Infrastructure note:
+- No schema change -> no prisma generate/db push required (DATABASE_URL unset, expected).
+- Set GOOGLE_AI_API_KEY (and optionally GOOGLE_AI_MODEL / GOOGLE_AI_TIMEOUT_MS) in the
+  environment before enabling duplicate detection; without a key the pipeline degrades
+  safely to heuristic + manual review (never auto-approves suspicious items).
+- googleAI apiKey is intentionally empty in dot env defaults so a local/dev boot never
+  sends credentials anywhere.
+
+Next steps (Phase 10+):
+- Advanced analytics (funnel, per-threshold rejection rates, AI cost tracking)
+- Marketing campaigns / bulk messaging (carried over from Phase 7)
+- Meta template approval workflow
+- Ad network integrations (Google AdSense, etc.)
+- Revenue/payout ledger based on MonetizationEvent data
+
+NO TESTING WAS PERFORMED — BUILD ONLY PHASE.

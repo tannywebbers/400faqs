@@ -1,30 +1,66 @@
-import { Prisma, QuestionType, SessionState, SessionStatus } from "@prisma/client";
+import { QuestionType, SessionState, type MonetizationGate } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { getRedis } from "../lib/redis";
 import { sendText, sendButtons, sendList } from "../lib/whatsapp";
 import { generateInviteCode } from "../lib/ticket";
-import { getPublicSettings, settingNumber } from "./settings";
-import { submitContribution } from "./moderation";
 import { parseCommand, normalizeInput } from "./commands";
 import { messages, waClickLink } from "./messages";
 import { logger } from "../lib/logger";
+import { submitContribution } from "./moderation";
+import {
+  getMonetizationSettings,
+  getOrCreateGate,
+  resolveBlockingGate,
+  verifyGateCode,
+  looksLikeCode,
+  monetizationLink,
+  cancelGatesForSession,
+} from "./monetization";
+import {
+  getActiveCategories,
+  getCategoryById,
+  categoryMaxNumber,
+  categoryActiveQuestionCount,
+} from "./category.service";
+import {
+  getQuestionByCategoryAndNumber,
+  getRandomUnusedQuestionOfType,
+  isNumberUsedInSession,
+  remainingQuestionCount,
+  getAvailableQuestionNumbers,
+  getUsedQuestionNumbers,
+} from "./question.service";
+import {
+  SessionWithUsers,
+  getActiveSessionForUser,
+  getSessionById,
+  isParticipant,
+  otherUser,
+  otherUserId,
+  hasActiveSession,
+  atomicJoin,
+  atomicProposeCategory,
+  atomicAcceptCategory,
+  atomicStartSuggestion,
+  atomicDeclineCategory,
+  atomicSelectNumber,
+  atomicSelectTruthDare,
+  atomicAnswerAndSwap,
+  atomicFinishGame,
+  atomicEndSession,
+  atomicCancelCategoryProposal,
+} from "./session.service";
 
-// void-returning send wrappers so handlers can `return reply(...)`.
+// ============================================================
+// Reply wrappers
+// ============================================================
+
 async function reply(phone: string, text: string): Promise<void> {
   await sendText(phone, text);
 }
 
 async function replyButtons(phone: string, body: string, buttons: { id: string; title: string }[]): Promise<void> {
   await sendButtons(phone, body, buttons);
-}
-
-async function replyList(
-  phone: string,
-  body: string,
-  buttonText: string,
-  rows: { id: string; title: string; description?: string }[]
-): Promise<void> {
-  await sendList(phone, body, buttonText, rows);
 }
 
 // ============================================================
@@ -84,104 +120,40 @@ function cleanText(raw: string): string {
 // Settings
 // ============================================================
 
-async function getSettingValue(key: string, fallback: string): Promise<string> {
-  const row = await prisma.setting.findUnique({ where: { key } });
-  return row?.value ?? fallback;
-}
-
 async function getNumberSetting(key: string, fallback: number): Promise<number> {
-  const v = await getSettingValue(key, String(fallback));
-  const n = Number(v);
+  const row = await prisma.setting.findUnique({ where: { key } });
+  const n = Number(row?.value ?? fallback);
   return Number.isFinite(n) ? n : fallback;
 }
 
 // ============================================================
-// Session lookup
+// Helpers
 // ============================================================
-
-type SessionWithUsers = Prisma.SessionGetPayload<{
-  include: { creator: true; joiner: true; category: true; currentQuestion: true };
-}>;
-
-async function getActiveSessionForUser(userId: string): Promise<SessionWithUsers | null> {
-  return prisma.session.findFirst({
-    where: {
-      status: { in: ["WAITING", "ACTIVE"] },
-      OR: [{ creatorId: userId }, { joinerId: userId }],
-    },
-    include: { creator: true, joiner: true, category: true, currentQuestion: true },
-    orderBy: { createdAt: "desc" },
-  });
-}
-
-function isParticipant(session: { creatorId: string; joinerId: string | null }, userId: string): boolean {
-  return session.creatorId === userId || session.joinerId === userId;
-}
-
-function otherUser(session: SessionWithUsers, userId: string) {
-  return session.creatorId === userId ? session.joiner : session.creator;
-}
-
-function otherUserId(session: { creatorId: string; joinerId: string | null }, userId: string): string | null {
-  return session.creatorId === userId ? session.joinerId : session.creatorId;
-}
-
-function stateLabel(state: SessionState): string {
-  switch (state) {
-    case "WAITING_FOR_OPPONENT":
-      return "Waiting for an opponent";
-    case "CATEGORY_SELECTION":
-      return "Choosing a category";
-    case "WAITING_FOR_CATEGORY_RESPONSE":
-      return "Waiting for category approval";
-    case "NUMBER_SELECTION":
-      return "Pick a number";
-    case "WAITING_FOR_ANSWER":
-      return "Waiting for an answer";
-    case "TRUTH_DARE_SELECTION":
-      return "Choose Truth or Dare";
-    case "COMPLETED":
-      return "Completed";
-    case "ENDED":
-      return "Ended";
-    case "EXPIRED":
-      return "Expired";
-  }
-}
 
 function userName(u?: { name: string | null; phone: string } | null): string {
   if (!u) return "Player";
   return u.name || u.phone;
 }
 
-// ============================================================
-// Question counts / availability
-// ============================================================
-
-async function categoryMaxNumber(categoryId: string): Promise<number> {
-  const agg = await prisma.question.aggregate({
-    where: { categoryId, status: "APPROVED", number: { not: null } },
-    _max: { number: true },
-  });
-  return agg._max.number ?? 0;
+function stateLabel(state: SessionState): string {
+  switch (state) {
+    case "WAITING_FOR_OPPONENT": return "Waiting for an opponent";
+    case "CATEGORY_SELECTION": return "Choosing a category";
+    case "WAITING_FOR_CATEGORY_RESPONSE": return "Waiting for category approval";
+    case "NUMBER_SELECTION": return "Pick a number";
+    case "WAITING_FOR_ANSWER": return "Waiting for an answer";
+    case "TRUTH_DARE_SELECTION": return "Choose Truth or Dare";
+    case "COMPLETED": return "Completed";
+    case "ENDED": return "Ended";
+    case "EXPIRED": return "Expired";
+  }
 }
 
-async function unusedQuestionOfType(categoryId: string, type: QuestionType, sessionId: string): Promise<{ id: string; text: string } | null> {
-  const used = await prisma.gameMove.findMany({ where: { sessionId }, select: { questionId: true } });
-  const usedIds = used.map((m) => m.questionId);
-  const remaining = await prisma.question.findMany({
-    where: {
-      categoryId,
-      status: "APPROVED",
-      type,
-      ...(usedIds.length ? { id: { notIn: usedIds } } : {}),
-    },
-    select: { id: true, text: true },
-    take: 100,
-    orderBy: { playsCount: "asc" },
-  });
-  if (remaining.length === 0) return null;
-  return remaining[Math.floor(Math.random() * remaining.length)];
+async function buildInviteLink(code: string): Promise<string> {
+  const row = await prisma.setting.findUnique({ where: { key: "whatsapp.number" } });
+  const botNumber = row?.value ?? "";
+  if (!botNumber) return "";
+  return waClickLink(botNumber, messages.invitationBody(code));
 }
 
 // ============================================================
@@ -223,6 +195,26 @@ async function processMessage(payload: WaInbound): Promise<void> {
   const session = await getActiveSessionForUser(user.id);
   const text = payload.text ?? "";
   const ctx: Ctx = { phone: payload.phone, userId: user.id, name: user.name ?? undefined, text, session };
+
+  // 0) Monetization gate — a pending verification pauses this player's game.
+  // Management commands (manage/status/help/cancel/end/leave) stay available so
+  // the session can always be inspected or ended. Everything else is deferred
+  // until the verification is completed.
+  if (session) {
+    const blocking = await resolveBlockingGate(session.id, user.id, session.round);
+    if (blocking.gate) {
+      if (blocking.recreated) {
+        await sendText(payload.phone, messages.verificationRequired(monetizationLink(blocking.gate)));
+      }
+      if (payload.buttonId === "manage") return showStatus(ctx, session);
+      const cmd = parseCommand(text);
+      if (cmd && ["manage", "status", "help", "cancel", "end", "leave"].includes(cmd.name)) {
+        await clearFlow(payload.phone);
+        return handleCommand(ctx, cmd.name, cmd.arg);
+      }
+      return handleGateInteraction(ctx, session, blocking.gate);
+    }
+  }
 
   // 1) Interactive (buttons / lists) — validate against current state
   if (payload.buttonId) return handleButton(ctx, payload.buttonId);
@@ -302,9 +294,9 @@ async function handleListPick(ctx: Ctx, categoryId: string): Promise<void> {
     await sendText(phone, messages.staleAction());
     return;
   }
-  const category = await prisma.category.findFirst({ where: { id: categoryId, status: "ACTIVE" } });
+  const category = await getCategoryById(categoryId);
   if (!category) {
-    await sendText(phone, messages.invalidCategory(categoryId));
+    await sendText(phone, "That category is not available. Send /categories to see available options.");
     return;
   }
   await proposeCategory(ctx, session, category.id, category.name);
@@ -364,10 +356,7 @@ async function handleCancel(ctx: Ctx): Promise<void> {
     return;
   }
   if (session.state === "CATEGORY_SELECTION" || session.state === "WAITING_FOR_CATEGORY_RESPONSE") {
-    await prisma.session.updateMany({
-      where: { id: session.id, state: session.state },
-      data: { pendingCategoryId: null, categoryProposerId: session.creatorId, state: "CATEGORY_SELECTION" },
-    });
+    await atomicCancelCategoryProposal(session.id, session.state, session.creatorId);
     await sendText(phone, "Category choice cancelled. The session creator can choose a new one.");
     return;
   }
@@ -390,13 +379,12 @@ async function handleRandom(ctx: Ctx): Promise<void> {
     return reply(phone, "Random selection is only available when it's your turn to pick a number.");
   }
   if (!session.categoryId) return reply(phone, messages.invalidNumber(0));
-  const max = await categoryMaxNumber(session.categoryId);
-  const used = await prisma.gameMove.findMany({ where: { sessionId: session.id }, select: { number: true } });
-  const usedSet = new Set(used.map((m) => m.number).filter((n): n is number => n !== null));
-  const available: number[] = [];
-  for (let i = 1; i <= max; i++) if (!usedSet.has(i)) available.push(i);
-  if (available.length === 0) return reply(phone, messages.invalidNumber(max));
-  const n = available[Math.floor(Math.random() * available.length)];
+
+  const availableNumbers = await getAvailableQuestionNumbers(session.categoryId);
+  const usedSet = await getUsedQuestionNumbers(session.id);
+  const playable = availableNumbers.filter((n: number) => !usedSet.has(n));
+  if (playable.length === 0) return reply(phone, messages.invalidNumber(availableNumbers.length));
+  const n = playable[Math.floor(Math.random() * playable.length)];
   return selectNumber(ctx, session, String(n));
 }
 
@@ -404,16 +392,21 @@ async function handleRandom(ctx: Ctx): Promise<void> {
 // Session creation
 // ============================================================
 
-async function buildInviteLink(code: string): Promise<string> {
-  const botNumber = await getSettingValue("whatsapp.number", "");
-  if (!botNumber) return "";
-  return waClickLink(botNumber, messages.invitationBody(code));
-}
-
 async function startNewGame(ctx: Ctx): Promise<void> {
   const { phone, userId } = ctx;
-  const active = ctx.session;
-  if (active) {
+
+  // Active session constraint: prevent creating a second active session
+  if (ctx.session) {
+    await sendButtons(phone, "You already have an active 400QUES session.", [
+      { id: "manage", title: "Manage session" },
+      { id: "end_confirm", title: "End session" },
+    ]);
+    return;
+  }
+
+  // Double-check: prevent creating if another session exists (race protection)
+  const alreadyActive = await hasActiveSession(userId);
+  if (alreadyActive) {
     await sendButtons(phone, "You already have an active 400QUES session.", [
       { id: "manage", title: "Manage session" },
       { id: "end_confirm", title: "End session" },
@@ -469,34 +462,12 @@ async function joinGame(ctx: Ctx, rawCode: string): Promise<void> {
     return reply(phone, messages.invalidInvitation());
   }
   if (session.expiresAt && session.expiresAt < new Date()) {
-    await prisma.session.updateMany({
-      where: { id: session.id, status: "WAITING" },
-      data: { status: "ABANDONED", state: "EXPIRED", finishedAt: new Date() },
-    });
+    await atomicEndSession(session.id, "EXPIRED");
     return reply(phone, messages.expiredInvitation());
   }
 
-  // Atomic claim: only one concurrent join can flip WAITING -> ACTIVE.
-  const claimed = await prisma.$transaction(async (tx) => {
-    const res = await tx.session.updateMany({
-      where: { id: session.id, status: "WAITING", joinerId: null, state: "WAITING_FOR_OPPONENT" },
-      data: {
-        joinerId: userId,
-        status: "ACTIVE",
-        state: "CATEGORY_SELECTION",
-        categoryProposerId: session.creatorId,
-        startedAt: new Date(),
-        expiresAt: null,
-        lastActivityAt: new Date(),
-      },
-    });
-    if (res.count === 1) {
-      await tx.user.updateMany({ where: { id: { in: [session.creatorId, userId] } }, data: { totalSessions: { increment: 1 } } });
-    }
-    return res.count;
-  });
-
-  if (claimed === 0) return reply(phone, messages.invalidInvitation());
+  const { success } = await atomicJoin(session.id, userId, session.creatorId);
+  if (!success) return reply(phone, messages.invalidInvitation());
 
   const creator = await prisma.user.findUnique({ where: { id: session.creatorId } });
   const joiner = ctx.name ? ctx.name : undefined;
@@ -517,19 +488,15 @@ async function joinGame(ctx: Ctx, rawCode: string): Promise<void> {
 
 async function sendCategoryList(ctx: Ctx, pickMode: boolean): Promise<void> {
   const { phone } = ctx;
-  const categories = await prisma.category.findMany({
-    where: { status: "ACTIVE" },
-    orderBy: [{ playCount: "desc" }, { name: "asc" }],
-    take: 10,
-    select: { id: true, name: true, description: true },
-  });
-  if (categories.length === 0) {
+  const categories = await getActiveCategories();
+  const listCategories = (categories as { id: string; name: string; description: string | null }[]).slice(0, 10);
+  if (listCategories.length === 0) {
     await sendText(phone, "No categories available yet. Check back soon!");
     return;
   }
   const header = pickMode ? "Pick a category" : "Available Categories 📚";
   const footer = "Play 400QUES with a friend 🎮";
-  const rows = categories.map((c) => ({ id: c.id, title: c.name, description: (c.description ?? "").slice(0, 72) }));
+  const rows = listCategories.map((c) => ({ id: c.id, title: c.name, description: (c.description ?? "").slice(0, 72) }));
   await sendList(phone, header, "See categories", rows, { footer });
 }
 
@@ -571,7 +538,7 @@ async function pickCategory(ctx: Ctx, session: SessionWithUsers, raw: string): P
   const text = cleanText(raw);
   if (!text) return reply(phone, messages.chooseCategory());
 
-  const byId = await prisma.category.findFirst({ where: { id: text, status: "ACTIVE" } });
+  const byId = await getCategoryById(text);
   const category = byId ?? (await prisma.category.findFirst({ where: { status: "ACTIVE", name: { contains: text, mode: "insensitive" } } }));
   if (!category) return reply(phone, messages.invalidCategory(text));
 
@@ -580,26 +547,14 @@ async function pickCategory(ctx: Ctx, session: SessionWithUsers, raw: string): P
 
 async function proposeCategory(ctx: Ctx, session: SessionWithUsers, categoryId: string, name: string): Promise<void> {
   const { phone, userId } = ctx;
-  const claimed = await prisma.$transaction(async (tx) => {
-    const res = await tx.session.updateMany({
-      where: { id: session.id, state: "CATEGORY_SELECTION", categoryProposerId: userId },
-      data: { pendingCategoryId: categoryId, categoryProposerId: userId, state: "WAITING_FOR_CATEGORY_RESPONSE", lastActivityAt: new Date() },
-    });
-    if (res.count === 1) {
-      const history = Array.isArray(session.proposalHistory) ? (session.proposalHistory as unknown[]) : [];
-      await tx.session.update({
-        where: { id: session.id },
-        data: { proposalHistory: [...history, { categoryId, name, proposedBy: userId, at: new Date().toISOString() }] as Prisma.InputJsonValue },
-      });
-    }
-    return res.count;
-  });
-  if (claimed === 0) return reply(phone, messages.staleAction());
+  const history = Array.isArray(session.proposalHistory) ? (session.proposalHistory as unknown[]) : [];
+  const claimed = await atomicProposeCategory(session.id, userId, categoryId, history);
+  if (!claimed) return reply(phone, messages.staleAction());
 
-  const category = await prisma.category.findUnique({ where: { id: categoryId } });
+  const category = await getCategoryById(categoryId);
   if (!category) return;
   const opponent = otherUser(session, userId);
-  const count = await categoryMaxNumber(categoryId);
+  const count = await categoryActiveQuestionCount(categoryId);
   const typeLabel = category.gameType === "TRUTH_DARE" ? "Truth or Dare" : "Questions";
 
   if (opponent) {
@@ -613,7 +568,7 @@ async function proposeCategory(ctx: Ctx, session: SessionWithUsers, categoryId: 
       ]
     );
   }
-  await sendText(phone, messages.proposalSent(category.name));
+  await sendText(phone, messages.proposalSent(name));
   logger.info("[game] category proposed", { sessionId: session.id, categoryId });
 }
 
@@ -625,30 +580,19 @@ async function acceptCategory(ctx: Ctx, session: SessionWithUsers): Promise<void
   const pending = session.pendingCategoryId;
   if (!pending) return reply(phone, messages.staleAction());
 
-  const category = await prisma.category.findUnique({ where: { id: pending } });
+  const category = await getCategoryById(pending);
   if (!category) return reply(phone, messages.staleAction());
 
   const targetState: SessionState = category.gameType === "TRUTH_DARE" ? "TRUTH_DARE_SELECTION" : "NUMBER_SELECTION";
-  const claimed = await prisma.session.updateMany({
-    where: { id: session.id, state: "WAITING_FOR_CATEGORY_RESPONSE", categoryProposerId: { not: userId } },
-    data: {
-      categoryId: pending,
-      pendingCategoryId: null,
-      categoryProposerId: null,
-      round: 1,
-      currentTurnUserId: session.creatorId,
-      state: targetState,
-      lastActivityAt: new Date(),
-    },
-  });
-  if (claimed.count === 0) return reply(phone, messages.staleAction());
+  const claimed = await atomicAcceptCategory(session.id, userId, pending, targetState, session.creatorId);
+  if (!claimed) return reply(phone, messages.staleAction());
 
-  const count = await categoryMaxNumber(pending);
+  const count = await categoryActiveQuestionCount(pending);
   const both = [session.creator, session.joiner].filter(Boolean);
   for (const u of both) {
     if (u) await sendText(u.phone, messages.categoryAccepted(category.name, count));
   }
-  await promptNumberOrTap(ctx, session.creatorId, targetState, count, session.creator.name);
+  await promptNumberOrTap(session, session.creatorId, targetState, count, session.creator.name);
   logger.info("[game] category accepted", { sessionId: session.id, categoryId: pending });
 }
 
@@ -657,11 +601,8 @@ async function startSuggestion(ctx: Ctx, session: SessionWithUsers): Promise<voi
   if (session.state !== "WAITING_FOR_CATEGORY_RESPONSE" || session.categoryProposerId === userId) {
     return reply(phone, messages.staleAction());
   }
-  const claimed = await prisma.session.updateMany({
-    where: { id: session.id, state: "WAITING_FOR_CATEGORY_RESPONSE", categoryProposerId: { not: userId } },
-    data: { pendingCategoryId: null, categoryProposerId: userId, state: "CATEGORY_SELECTION", lastActivityAt: new Date() },
-  });
-  if (claimed.count === 0) return reply(phone, messages.staleAction());
+  const claimed = await atomicStartSuggestion(session.id, userId, session.creatorId);
+  if (!claimed) return reply(phone, messages.staleAction());
   await sendText(phone, "Great! Pick a category to suggest to your opponent.");
   await sendCategoryList(ctx, true);
 }
@@ -672,14 +613,11 @@ async function declineCategory(ctx: Ctx, session: SessionWithUsers): Promise<voi
     return reply(phone, messages.staleAction());
   }
   const declinedName = session.pendingCategoryId
-    ? (await prisma.category.findUnique({ where: { id: session.pendingCategoryId } }))?.name ?? "the category"
+    ? (await getCategoryById(session.pendingCategoryId))?.name ?? "the category"
     : "the category";
 
-  const claimed = await prisma.session.updateMany({
-    where: { id: session.id, state: "WAITING_FOR_CATEGORY_RESPONSE", categoryProposerId: { not: userId } },
-    data: { pendingCategoryId: null, categoryProposerId: session.creatorId, state: "CATEGORY_SELECTION", lastActivityAt: new Date() },
-  });
-  if (claimed.count === 0) return reply(phone, messages.staleAction());
+  const claimed = await atomicDeclineCategory(session.id, userId, session.creatorId);
+  if (!claimed) return reply(phone, messages.staleAction());
 
   const proposer = session.categoryProposerId === session.creatorId ? session.creator : session.joiner;
   if (proposer) await sendText(proposer.phone, messages.categoryDeclined(declinedName));
@@ -690,9 +628,32 @@ async function declineCategory(ctx: Ctx, session: SessionWithUsers): Promise<voi
 // Number selection
 // ============================================================
 
-async function promptNumberOrTap(ctx: Ctx, userId: string, targetState: SessionState, count: number, askerName?: string | null): Promise<void> {
+async function promptNumberOrTap(session: SessionWithUsers, userId: string, targetState: SessionState, count: number, askerName?: string | null): Promise<void> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return;
+
+  // Round-based monetization gate: every `roundInterval` completed answers, the
+  // player whose turn is about to begin must verify before their prompt shows.
+  // Getting the prompt deferred (returning without messaging) pauses the turn.
+  const settings = await getMonetizationSettings();
+  if (settings.enabled) {
+    const turns = session.turnsPlayed;
+    if (turns >= settings.roundInterval && turns % settings.roundInterval === 0) {
+      const verifiedForRound = await prisma.monetizationGate.findFirst({
+        where: { sessionId: session.id, userId, status: "VERIFIED", round: session.round },
+      });
+      if (!verifiedForRound) {
+        const gate = await getOrCreateGate(session.id, userId, session.round);
+        if (gate) {
+          await sendText(user.phone, messages.verificationRequired(monetizationLink(gate)));
+          const opponent = otherUser(session, userId);
+          if (opponent) await sendText(opponent.phone, messages.opponentVerifying(userName(user)));
+          return;
+        }
+      }
+    }
+  }
+
   if (targetState === "TRUTH_DARE_SELECTION") {
     await sendButtons(user.phone, messages.truthDareSelection(), [
       { id: "truth_tap", title: "TRUTH-TAP" },
@@ -716,10 +677,17 @@ async function selectNumber(ctx: Ctx, session: SessionWithUsers, raw: string): P
     return reply(phone, messages.invalidNumber(max));
   }
   const n = Number(text);
+
+  // Validate number is in valid range (gap-aware: only playable numbers)
   const max = await categoryMaxNumber(session.categoryId);
   if (n < 1 || n > max) return reply(phone, messages.invalidNumber(max));
 
-  const question = await prisma.question.findFirst({ where: { categoryId: session.categoryId, number: n, status: "APPROVED" } });
+  // Check if number already used in this session (server-side duplicate protection)
+  const alreadyUsed = await isNumberUsedInSession(session.id, n);
+  if (alreadyUsed) return reply(phone, messages.duplicateNumber(n));
+
+  // Look up the question
+  const question = await getQuestionByCategoryAndNumber(session.categoryId, n);
   if (!question) {
     logger.warn("[game] question number missing", { sessionId: session.id, number: n });
     return reply(phone, messages.questionLoadError());
@@ -728,35 +696,12 @@ async function selectNumber(ctx: Ctx, session: SessionWithUsers, raw: string): P
   const answererId = otherUserId(session, userId);
   if (!answererId) return reply(phone, messages.genericError());
 
-  try {
-    const claimed = await prisma.$transaction(async (tx) => {
-      const res = await tx.session.updateMany({
-        where: { id: session.id, state: "NUMBER_SELECTION", currentTurnUserId: userId },
-        data: { currentQuestionId: question.id, currentNumber: n, state: "WAITING_FOR_ANSWER", lastActivityAt: new Date() },
-      });
-      if (res.count === 0) return 0;
-      await tx.gameMove.create({
-        data: {
-          sessionId: session.id,
-          questionId: question.id,
-          round: session.round,
-          number: n,
-          askedBy: userId,
-          answeredBy: answererId,
-          type: question.type,
-          status: "PENDING_ANSWER",
-        },
-      });
-      await tx.question.update({ where: { id: question.id }, data: { playsCount: { increment: 1 } } });
-      return 1;
-    });
-    if (claimed === 0) return reply(phone, messages.staleAction());
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      return reply(phone, messages.duplicateNumber(n));
-    }
-    throw err;
-  }
+  // Atomic: claim session state + create GameMove + increment play count
+  const { success, duplicate } = await atomicSelectNumber(
+    session.id, userId, question.id, n, session.round, answererId, question.type
+  );
+  if (duplicate) return reply(phone, messages.duplicateNumber(n));
+  if (!success) return reply(phone, messages.staleAction());
 
   const asker = await prisma.user.findUnique({ where: { id: userId } });
   const answerer = await prisma.user.findUnique({ where: { id: answererId } });
@@ -778,53 +723,25 @@ async function tapTruthDare(ctx: Ctx, session: SessionWithUsers, type: QuestionT
   }
   if (!session.categoryId) return reply(phone, messages.genericError());
 
-  const question = await unusedQuestionOfType(session.categoryId, type, session.id);
+  const question = await getRandomUnusedQuestionOfType(session.categoryId, type, session.id);
   if (!question) {
-    const otherType: QuestionType = type === "TRUTH" ? "DARE" : "TRUTH";
-    const fallback = await unusedQuestionOfType(session.categoryId, otherType, session.id);
+    // Per spec: do NOT fall back to the other type.
+    // Inform the user that no unused questions of this type remain.
     const msg = type === "TRUTH" ? messages.noUnusedTruth() : messages.noUnusedDare();
-    if (fallback) {
-      await sendButtons(
-        phone,
-        `${msg}\n\nThere are still unused ${otherType} questions left.`,
-        [{ id: otherType === "TRUTH" ? "truth_tap" : "dare_tap", title: `${otherType}-TAP` }]
-      );
-      return;
-    }
     return finishGame(ctx, session, { exhausted: true });
   }
 
   const answererId = otherUserId(session, userId);
   if (!answererId) return reply(phone, messages.genericError());
 
-  try {
-    const claimed = await prisma.$transaction(async (tx) => {
-      const res = await tx.session.updateMany({
-        where: { id: session.id, state: "TRUTH_DARE_SELECTION", currentTurnUserId: userId },
-        data: { currentQuestionId: question.id, state: "WAITING_FOR_ANSWER", lastActivityAt: new Date() },
-      });
-      if (res.count === 0) return 0;
-      await tx.gameMove.create({
-        data: {
-          sessionId: session.id,
-          questionId: question.id,
-          round: session.round,
-          askedBy: userId,
-          answeredBy: answererId,
-          type,
-          status: "PENDING_ANSWER",
-        },
-      });
-      await tx.question.update({ where: { id: question.id }, data: { playsCount: { increment: 1 } } });
-      return 1;
-    });
-    if (claimed === 0) return reply(phone, messages.staleAction());
-  } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      return reply(phone, type === "TRUTH" ? messages.noUnusedTruth() : messages.noUnusedDare());
-    }
-    throw err;
+  const { success, duplicate } = await atomicSelectTruthDare(
+    session.id, userId, question.id, session.round, answererId, type
+  );
+  if (duplicate) {
+    const msg = type === "TRUTH" ? messages.noUnusedTruth() : messages.noUnusedDare();
+    return reply(phone, msg);
   }
+  if (!success) return reply(phone, messages.staleAction());
 
   const asker = await prisma.user.findUnique({ where: { id: userId } });
   const answerer = await prisma.user.findUnique({ where: { id: answererId } });
@@ -850,67 +767,106 @@ async function handleAnswer(ctx: Ctx, session: SessionWithUsers, raw: string): P
   const text = cleanText(raw);
   if (!text) return reply(phone, messages.genericError());
 
-  const claimed = await prisma.$transaction(async (tx) => {
-    const res = await tx.gameMove.updateMany({
-      where: { sessionId: session.id, round: session.round, status: "PENDING_ANSWER", answeredBy: userId },
-      data: { answer: text, status: "ANSWERED", answeredAt: new Date() },
-    });
-    if (res.count === 1) {
-      await tx.session.updateMany({
-        where: { id: session.id, state: "WAITING_FOR_ANSWER" },
-        data: { turnsPlayed: { increment: 1 }, lastActivityAt: new Date() },
-      });
-    }
-    return res.count;
-  });
-  if (claimed === 0) {
+  // Determine next state and next asker
+  const fresh = await prisma.session.findUnique({ where: { id: session.id }, include: { category: true } });
+  if (!fresh) return reply(phone, messages.genericError());
+
+  const nextAskerId = userId; // The answerer becomes the next asker
+  const nextState: SessionState = fresh.category?.gameType === "TRUTH_DARE" ? "TRUTH_DARE_SELECTION" : "NUMBER_SELECTION";
+
+  // Atomic: record answer + swap roles + increment round
+  const { success } = await atomicAnswerAndSwap(
+    session.id, userId, session.round, text, nextState, nextAskerId
+  );
+  if (!success) {
     logger.warn("[game] answer rejected (no pending move)", { sessionId: session.id, round: session.round });
     return reply(phone, messages.genericError());
   }
 
+  // Update user stats
   await prisma.user.update({ where: { id: userId }, data: { totalAnswered: { increment: 1 } } });
+
+  // Forward answer to asker
   const asker = askerId ? await prisma.user.findUnique({ where: { id: askerId } }) : null;
   if (asker) await sendText(asker.phone, messages.answerForward(userName(await prisma.user.findUnique({ where: { id: userId } })), text));
   await sendText(phone, messages.answerRecorded());
 
-  const fresh = await prisma.session.findUnique({ where: { id: session.id }, include: { category: true } });
-  if (!fresh) return;
+  // Re-fetch session to check game-ending conditions
+  const updated = await prisma.session.findUnique({
+    where: { id: session.id },
+    include: { category: true, creator: true, joiner: true, currentQuestion: true },
+  });
+  if (!updated) return;
 
   const roundsPerPlayer = await getNumberSetting("game.roundsPerPlayer", 5);
-  if (fresh.turnsPlayed >= roundsPerPlayer * 2) {
+  if (updated.turnsPlayed >= roundsPerPlayer * 2) {
     return finishGame(ctx, session, {});
   }
 
-  const remaining = await remainingQuestionCount(fresh);
+  const remaining = await remainingQuestionCount(updated);
   if (remaining === 0) {
     return finishGame(ctx, session, { exhausted: true });
   }
 
-  // Swap roles and advance round.
-  const nextAskerId = userId;
-  const nextState: SessionState = fresh.category?.gameType === "TRUTH_DARE" ? "TRUTH_DARE_SELECTION" : "NUMBER_SELECTION";
-  const swapped = await prisma.session.updateMany({
-    where: { id: session.id, state: "WAITING_FOR_ANSWER" },
-    data: { state: nextState, round: { increment: 1 }, currentTurnUserId: nextAskerId, lastActivityAt: new Date() },
-  });
-  if (swapped.count === 0) return;
-
-  await promptNumberOrTap(ctx, nextAskerId, nextState, remaining, userName(await prisma.user.findUnique({ where: { id: nextAskerId } })));
+  // Prompt next player
+  await promptNumberOrTap(updated, nextAskerId, nextState, remaining, userName(await prisma.user.findUnique({ where: { id: nextAskerId } })));
   logger.info("[game] turn changed", { sessionId: session.id, round: fresh.round + 1 });
 }
 
-async function remainingQuestionCount(session: { id: string; categoryId: string | null; category?: { gameType: string } | null }): Promise<number> {
-  if (!session.categoryId) return 0;
-  const used = await prisma.gameMove.findMany({ where: { sessionId: session.id }, select: { questionId: true, number: true } });
-  const usedIds = used.map((m) => m.questionId);
-  if (session.category?.gameType === "TRUTH_DARE") {
-    return prisma.question.count({
-      where: { categoryId: session.categoryId, status: "APPROVED", ...(usedIds.length ? { id: { notIn: usedIds } } : {}) },
-    });
+// ============================================================
+// Monetization gate handling
+// ============================================================
+
+async function handleGateInteraction(ctx: Ctx, session: SessionWithUsers, gate: MonetizationGate): Promise<void> {
+  const { phone, userId, text } = ctx;
+  const settings = await getMonetizationSettings();
+  const plain = text.trim();
+
+  if (!plain) {
+    await sendText(phone, messages.verificationBlocked());
+    return;
   }
-  const max = await categoryMaxNumber(session.categoryId);
-  const usedNumbers = new Set(used.map((m) => m.number).filter((n): n is number => n !== null));
-  return Math.max(0, max - usedNumbers.size);
+  if (!looksLikeCode(plain, settings.codeLength, settings.codeType)) {
+    await sendText(phone, messages.verificationBlocked());
+    return;
+  }
+
+  const outcome = await verifyGateCode(session.id, userId, gate.id, plain);
+  if (outcome.ok) {
+    await sendText(phone, messages.verificationSuccess());
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const opponent = otherUser(session, userId);
+    if (opponent) await sendText(opponent.phone, messages.opponentVerified(userName(user)));
+    await resumeTurnAfterVerification(session.id, userId);
+    return;
+  }
+
+  if (outcome.reason === "NO_CODE" || outcome.reason === "NO_ACTIVE_GATE" || outcome.reason === "NOT_YOUR_GATE") {
+    await sendText(phone, messages.verificationBlocked());
+    return;
+  }
+
+  if (outcome.reason === "MAX_ATTEMPTS" || outcome.reason === "EXPIRED_CODE") {
+    await sendText(phone, messages.verificationMaxed());
+    const refreshed = await resolveBlockingGate(session.id, userId, session.round);
+    if (refreshed.gate) {
+      await sendText(phone, messages.verificationRequired(monetizationLink(refreshed.gate)));
+    }
+    return;
+  }
+
+  await sendText(phone, messages.verificationInvalid());
+}
+
+async function resumeTurnAfterVerification(sessionId: string, userId: string): Promise<void> {
+  const session = await getSessionById(sessionId);
+  if (!session || session.status !== "ACTIVE") return;
+  if (session.currentTurnUserId !== userId) return;
+  if (session.state !== "NUMBER_SELECTION" && session.state !== "TRUTH_DARE_SELECTION") return;
+
+  const remaining = await remainingQuestionCount(session);
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  await promptNumberOrTap(session, userId, session.state, remaining, userName(user));
 }
 
 // ============================================================
@@ -923,15 +879,9 @@ async function finishGame(ctx: Ctx, session: SessionWithUsers, opts: { exhausted
   for (const m of moves) askedCount.set(m.askedBy, (askedCount.get(m.askedBy) ?? 0) + 1);
   const winnerId = [...askedCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? session.creatorId;
 
-  const claimed = await prisma.session.updateMany({
-    where: { id: session.id, status: "ACTIVE" },
-    data: { status: "COMPLETED", state: "COMPLETED", finishedAt: new Date(), winnerId },
-  });
-  if (claimed.count === 0) return;
-
-  if (session.categoryId) {
-    await prisma.category.updateMany({ where: { id: session.categoryId }, data: { playCount: { increment: 1 } } });
-  }
+  const finished = await atomicFinishGame(session.id, winnerId, session.categoryId);
+  if (!finished) return;
+  await cancelGatesForSession(session.id);
 
   const winner = await prisma.user.findUnique({ where: { id: winnerId } });
   const summary = opts.exhausted
@@ -949,16 +899,10 @@ async function endSession(
   session: SessionWithUsers,
   opts: { reason: "ended" | "expired"; notify: boolean; leaverId?: string; cancelled?: boolean }
 ): Promise<void> {
-  const claimed = await prisma.session.updateMany({
-    where: { id: session.id, status: { in: ["WAITING", "ACTIVE"] } },
-    data: {
-      status: "ABANDONED",
-      state: opts.reason === "expired" ? "EXPIRED" : "ENDED",
-      finishedAt: new Date(),
-      leaverId: opts.leaverId ?? session.leaverId,
-    },
-  });
-  if (claimed.count === 0) return;
+  const state = opts.reason === "expired" ? "EXPIRED" : "ENDED";
+  const ended = await atomicEndSession(session.id, state as SessionState, opts.leaverId ?? session.leaverId);
+  if (!ended) return;
+  await cancelGatesForSession(session.id);
 
   if (opts.notify) {
     const leaver = opts.leaverId ? (opts.leaverId === session.creatorId ? session.creator : session.joiner) : null;
@@ -1026,7 +970,7 @@ async function showCurrentPrompt(ctx: Ctx, session: SessionWithUsers): Promise<v
 async function showStatus(ctx: Ctx, session: SessionWithUsers): Promise<void> {
   const { phone, userId } = ctx;
   const opponent = otherUser(session, userId);
-  const pendingCategory = session.pendingCategoryId ? await prisma.category.findUnique({ where: { id: session.pendingCategoryId } }) : null;
+  const pendingCategory = session.pendingCategoryId ? await getCategoryById(session.pendingCategoryId) : null;
   const turnPlayer = session.currentTurnUserId ? await prisma.user.findUnique({ where: { id: session.currentTurnUserId } }) : null;
   const isAnswererWait = session.state === "WAITING_FOR_ANSWER" && session.currentTurnUserId !== userId;
 
@@ -1049,10 +993,11 @@ async function startContribute(ctx: Ctx, questionText?: string): Promise<void> {
   const { phone } = ctx;
   if (questionText && questionText.trim().length >= 3) {
     await setFlow(phone, { step: "contribute_category", pendingQuestion: questionText.trim() });
-    const categories = await prisma.category.findMany({ where: { status: "ACTIVE" }, take: 10, orderBy: { playCount: "desc" }, select: { name: true } });
+    const categories = await getActiveCategories();
+    const listCategories = (categories as { name: string }[]).slice(0, 10);
     return reply(
       phone,
-      `Question: *"${questionText.slice(0, 120)}"*\n\nWhich category?\n\n${categories.map((c, i) => `${i + 1}. ${c.name}`).join("\n")}\n\nType the category name or *CANCEL* to abort.`
+      `Question: *"${questionText.slice(0, 120)}"*\n\nWhich category?\n\n${listCategories.map((c, i) => `${i + 1}. ${c.name}`).join("\n")}\n\nType the category name or *CANCEL* to abort.`
     );
   }
   await setFlow(phone, { step: "contribute_text" });
@@ -1076,10 +1021,11 @@ async function handleFlowStep(phone: string, userId: string, flow: FlowStep, raw
     }
     if (text.length < 3) return reply(phone, "That is too short. Please type the full question, or *CANCEL* to abort.");
     await setFlow(phone, { step: "contribute_category", pendingQuestion: text });
-    const categories = await prisma.category.findMany({ where: { status: "ACTIVE" }, take: 10, orderBy: { playCount: "desc" }, select: { name: true } });
+    const categories = await getActiveCategories();
+    const listCategories = (categories as { name: string }[]).slice(0, 10);
     return reply(
       phone,
-      `Got it: *"${text.slice(0, 120)}"*\n\nWhich category should it go in?\n\n${categories.map((c, i) => `${i + 1}. ${c.name}`).join("\n")}\n\nType the category name or *CANCEL* to abort.`
+      `Got it: *"${text.slice(0, 120)}"*\n\nWhich category should it go in?\n\n${listCategories.map((c, i) => `${i + 1}. ${c.name}`).join("\n")}\n\nType the category name or *CANCEL* to abort.`
     );
   }
 

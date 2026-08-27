@@ -4,6 +4,7 @@ import { prisma } from "../../lib/prisma";
 import { validate, parsePagination } from "../../middleware/validate";
 import { AppError, ok } from "../../lib/response";
 import { type AdminRequest } from "../../middleware/auth";
+import { createApprovedQuestion, recheckDuplicateBeforeApproval } from "../../services/moderation";
 
 export const contributionsRouter = Router();
 
@@ -57,27 +58,39 @@ contributionsRouter.patch("/:id/review", validate(reviewSchema), async (req, res
   });
 
   if (body.status === "APPROVED") {
-    const question = await prisma.question.create({
-      data: {
-        text: existing.question,
-        type: existing.type,
-        categoryId: existing.categoryId,
-        status: "APPROVED",
-        source: "COMMUNITY",
-        contributorId: existing.userId,
-        aiScore: existing.aiScore,
-      },
+    // Re-check for an exact duplicate at approval time (race + manual override guard).
+    const isDuplicate = await recheckDuplicateBeforeApproval({
+      question: existing.question,
+      categoryId: existing.categoryId,
+      type: existing.type,
     });
-    await prisma.category.update({ where: { id: existing.categoryId }, data: { questionCount: { increment: 1 } } });
+    if (isDuplicate) {
+      const rejected = await prisma.contribution.update({
+        where: { id: existing.id },
+        data: {
+          status: "REJECTED",
+          rejectionReason: "Duplicate of an existing question (rejected at approval)",
+          reviewedById: admin.id,
+          reviewedAt: new Date(),
+        },
+      });
+      await prisma.auditLog.create({
+        data: { adminId: admin.id, action: "REJECT", targetType: "contribution", targetId: existing.id, details: { status: "REJECTED", reason: "Exact duplicate found at approval" } },
+      });
+      return res.json(ok({ ...rejected, blocked: true, message: "Rejected — an exact duplicate question already exists." }));
+    }
+
+    await createApprovedQuestion({
+      text: existing.question,
+      type: existing.type,
+      categoryId: existing.categoryId,
+      userId: existing.userId,
+      aiScore: existing.aiScore,
+    });
     if (existing.userId) {
-      await prisma.userBadge.upsert({
-        where: { userId_badgeId: { userId: existing.userId, badgeId: "" } },
-        update: {},
-        create: { userId: existing.userId, badgeId: "" },
-      }).catch(() => undefined);
       await awardBadges(existing.userId);
     }
-    await prisma.auditLog.create({ data: { adminId: admin.id, action: "APPROVE", targetType: "contribution", targetId: existing.id, details: { questionId: question.id } } });
+    await prisma.auditLog.create({ data: { adminId: admin.id, action: "APPROVE", targetType: "contribution", targetId: existing.id } });
   } else {
     await prisma.auditLog.create({ data: { adminId: admin.id, action: "REJECT", targetType: "contribution", targetId: existing.id, details: { status: body.status } } });
   }

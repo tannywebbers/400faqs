@@ -1,0 +1,76 @@
+Phase 7 Complete — WhatsApp Business API Management & Admin Control
+
+What was built:
+
+1. PRISMA SCHEMA (packages/db/prisma/schema.prisma)
+   - MessageTemplate model: id, name, category, language, header, body, footer, buttons (JSON), status (DRAFT/ACTIVE/ARCHIVED), waTemplateId, timestamps
+   - MessageLog model: id, direction (inbound/outbound), phone, userId, type, status, content (JSON), templateId, waMessageId, error, metadata (JSON), createdAt
+   - Both models have proper indexes for filtering and pagination
+   - Run `prisma db push` to apply schema changes to your database
+
+2. BACKEND: WhatsApp Config Service (apps/api/src/services/whatsapp-config.ts)
+   - getWhatsAppConfig(): Resolves config from database settings first, falls back to env vars
+   - getMaskedConfig(): Returns config with access token and app secret masked (e.g. "abcd****efgh")
+   - updateWhatsAppConfig(): Stores credentials in the Setting table (group: "whatsapp")
+   - checkConnectionStatus(): Live check against WhatsApp Graph API with phone info
+   - regenerateVerifyToken(): Generates new crypto-random webhook verify token
+   - getWebhookUrl(): Returns the full webhook URL
+   - All credential values stored in database are NEVER exposed to the frontend
+
+3. BACKEND: Messaging Service (apps/api/src/services/messaging.ts)
+   - sendTextMessage(): Sends text via lib/whatsapp.ts and logs to MessageLog
+   - sendButtonMessage(): Sends interactive buttons and logs
+   - sendListMessage(): Sends interactive lists and logs
+   - logMessage(): Centralized logging for all inbound/outbound messages
+   - getMessageLogs(): Paginated message log with direction/phone/status filters
+
+4. BACKEND: Enhanced Admin Routes (apps/api/src/routes/admin/whatsapp.ts)
+   GET  /status          — Full status: connection, masked config, stats, webhook URL
+   GET  /config          — Masked WhatsApp configuration
+   PUT  /config          — Update credentials (stored in DB, audit logged)
+   GET  /webhook         — Webhook URL, verify token, graph version
+   POST /webhook/regenerate — New verify token (audit logged)
+   GET  /templates       — List message templates (paginated, filterable by status)
+   POST /templates       — Create template (name, category, language, header, body, footer, buttons)
+   PUT  /templates/:id   — Update template
+   DELETE /templates/:id — Delete template
+   GET  /messages        — Message log (paginated, filterable by direction/phone/status)
+   GET  /stats           — Aggregate stats (sessions, moves, players)
+   GET  /sessions        — Paginated session list
+   GET  /sessions/:id    — Session detail with moves
+   POST /test-send       — Send test message (existing, now uses messaging service for logging)
+
+5. BACKEND: Enhanced Webhook (apps/api/src/routes/webhook.ts)
+   - All inbound messages now logged to MessageLog with direction, type, content, waMessageId
+   - Delivery status updates (statuses array) now update matching MessageLog entries
+   - Existing idempotency via ProcessedEvent preserved
+
+6. FRONTEND: Rebuilt Admin WhatsApp Page (apps/web/src/app/admin/whatsapp/page.tsx)
+   Six tabbed sections:
+   - Overview: Connection status cards (connected/disconnected, phone number, inbound/outbound counts, active sessions, config source), error display, test send form
+   - Credentials: Full form for access token, phone number ID, business account ID, app ID, app secret, graph version, API base, verify token — shows masked current values, source indicator (env vs database)
+   - Webhook: Display webhook URL and verify token with copy buttons, regenerate button, step-by-step Meta Developer Dashboard setup instructions
+   - Templates: Create/edit/delete message templates with name, category, header, body, footer; table listing with status badges
+   - Messages: Paginated message log with direction/type/status/phone filters, inbound/outward indicators, content preview
+   - Sessions: Paginated game sessions with status filter tabs
+
+Typecheck results:
+- apps/web: Clean (0 errors)
+- apps/api: 22 pre-existing implicit `any` errors (unchanged, not in new files)
+
+Files modified:
+- packages/db/prisma/schema.prisma — Added MessageTemplate + MessageLog models
+- apps/api/src/routes/webhook.ts — Added inbound message logging + delivery status tracking
+- apps/api/src/routes/admin/whatsapp.ts — Complete rewrite with config, templates, messages, webhook management
+- apps/web/src/app/admin/whatsapp/page.tsx — Complete rebuild with 6-tab admin interface
+
+Files created:
+- apps/api/src/services/whatsapp-config.ts — WhatsApp config management with credential masking
+- apps/api/src/services/messaging.ts — Centralized outbound messaging with MessageLog tracking
+
+Next steps (Phase 8+):
+- Marketing campaigns / bulk messaging
+- Message template approval workflow with Meta
+- Analytics dashboard for message delivery rates
+- Auto-replies and chatbot flows
+- Multi-language template support

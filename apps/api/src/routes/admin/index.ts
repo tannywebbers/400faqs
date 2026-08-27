@@ -16,9 +16,11 @@ import { adsRouter } from "./ads";
 import { notificationsRouter } from "./notifications";
 import { auditRouter } from "./audit";
 import { whatsappRouter } from "./whatsapp";
+import { sessionsRouter } from "./sessions";
 import { uploadsRouter } from "./uploads";
 import { contactRouter } from "./contact";
 import { adminsRouter } from "./admins";
+import { monetizationAdminRouter } from "./monetization";
 
 export const adminRouter = Router();
 
@@ -40,6 +42,8 @@ adminRouter.use("/ads", adsRouter);
 adminRouter.use("/notifications", notificationsRouter);
 adminRouter.use("/audit", auditRouter);
 adminRouter.use("/whatsapp", whatsappRouter);
+adminRouter.use("/sessions", sessionsRouter);
 adminRouter.use("/uploads", uploadsRouter);
 adminRouter.use("/contact", contactRouter);
 adminRouter.use("/admins", adminsRouter);
+adminRouter.use("/monetization", monetizationAdminRouter);

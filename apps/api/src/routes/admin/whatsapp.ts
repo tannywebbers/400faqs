@@ -1,27 +1,266 @@
 import { Router } from "express";
 import { z } from "zod";
-import { SessionStatus } from "@prisma/client";
-import { ok } from "../../lib/response";
+import { SessionStatus, Prisma } from "@prisma/client";
+import { ok, AppError } from "../../lib/response";
 import { prisma } from "../../lib/prisma";
 import { validate } from "../../middleware/validate";
-import { sendText, whatsappConfigured, waPhoneNumberId } from "../../lib/whatsapp";
-import { config } from "../../config";
+import { sendText } from "../../lib/whatsapp";
 import { type AdminRequest } from "../../middleware/auth";
-import { AppError } from "../../lib/response";
+import {
+  getMaskedConfig,
+  updateWhatsAppConfig,
+  checkConnectionStatus,
+  getWebhookUrl,
+  regenerateVerifyToken,
+} from "../../services/whatsapp-config";
+import { sendTextMessage, getMessageLogs } from "../../services/messaging";
+import { logger } from "../../lib/logger";
 
 export const whatsappRouter = Router();
 
+// ── Connection Status ────────────────────────────────────────
+
 whatsappRouter.get("/status", async (_req, res) => {
+  const [config, connection] = await Promise.all([getMaskedConfig(), checkConnectionStatus()]);
+  const [sessions, messagesInbound, messagesOutbound] = await Promise.all([
+    prisma.session.count({ where: { status: { in: ["WAITING", "ACTIVE"] as SessionStatus[] } } }),
+    prisma.messageLog.count({ where: { direction: "inbound" } }),
+    prisma.messageLog.count({ where: { direction: "outbound" } }),
+  ]);
   res.json(
     ok({
-      configured: whatsappConfigured(),
-      phoneNumberId: waPhoneNumberId(),
-      webhookUrl: `${config.apiUrl}/api/webhooks/whatsapp`,
-      verifyToken: config.whatsapp.verifyToken,
-      graphVersion: config.whatsapp.graphVersion,
+      ...config,
+      connection,
+      stats: {
+        activeSessions: sessions,
+        messagesInbound,
+        messagesOutbound,
+        totalMessages: messagesInbound + messagesOutbound,
+      },
+      webhookUrl: getWebhookUrl(),
     })
   );
 });
+
+// ── Config CRUD ──────────────────────────────────────────────
+
+whatsappRouter.get("/config", async (_req, res) => {
+  const config = await getMaskedConfig();
+  res.json(ok(config));
+});
+
+const configUpdateSchema = z.object({
+  body: z.object({
+    accessToken: z.string().min(1).optional(),
+    phoneNumberId: z.string().min(1).optional(),
+    businessAccountId: z.string().optional(),
+    appId: z.string().optional(),
+    appSecret: z.string().optional(),
+    graphVersion: z.string().optional(),
+    apiBase: z.string().url().optional(),
+    webhookVerifyToken: z.string().optional(),
+  }),
+});
+
+whatsappRouter.put("/config", validate(configUpdateSchema), async (req, res) => {
+  const admin = (req as unknown as AdminRequest).admin;
+  const body = (req as unknown as { validated: { body: Record<string, string | undefined> } }).validated.body;
+
+  const filtered: Record<string, string> = {};
+  for (const [k, v] of Object.entries(body)) {
+    if (v !== undefined && v !== "") filtered[k] = v;
+  }
+
+  const updated = await updateWhatsAppConfig(filtered);
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      action: "WHATSAPP_CONFIG_UPDATE",
+      targetType: "whatsapp",
+      details: { fields: Object.keys(filtered) },
+    },
+  });
+
+  res.json(ok(updated));
+});
+
+// ── Webhook ──────────────────────────────────────────────────
+
+whatsappRouter.get("/webhook", async (_req, res) => {
+  const config = await getMaskedConfig();
+  res.json(
+    ok({
+      url: getWebhookUrl(),
+      verifyToken: config.webhookVerifyToken,
+      graphVersion: config.graphVersion,
+    })
+  );
+});
+
+whatsappRouter.post("/webhook/regenerate", async (req, res) => {
+  const admin = (req as unknown as AdminRequest).admin;
+  const result = await regenerateVerifyToken();
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      action: "WEBHOOK_TOKEN_REGENERATE",
+      targetType: "whatsapp",
+      details: { webhookUrl: result.webhookUrl },
+    },
+  });
+
+  res.json(ok(result));
+});
+
+// ── Message Templates ────────────────────────────────────────
+
+whatsappRouter.get("/templates", async (req, res) => {
+  const page = Math.max(Number(req.query.page ?? 1), 1);
+  const limit = Math.min(Number(req.query.limit ?? 20), 100);
+  const status = req.query.status as string | undefined;
+  const where = status ? { status } : undefined;
+
+  const [total, items] = await Promise.all([
+    prisma.messageTemplate.count({ where }),
+    prisma.messageTemplate.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
+
+  res.json(ok(items, { page, limit, total, totalPages: Math.ceil(total / limit) }));
+});
+
+const templateSchema = z.object({
+  body: z.object({
+    name: z.string().min(1).max(100),
+    category: z.string().default("UTILITY"),
+    language: z.string().default("en"),
+    header: z.string().max(60).optional(),
+    body: z.string().min(1).max(1024),
+    footer: z.string().max(60).optional(),
+    buttons: z
+      .array(z.object({ id: z.string(), title: z.string() }))
+      .max(3)
+      .optional(),
+    status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).default("DRAFT"),
+  }),
+});
+
+whatsappRouter.post("/templates", validate(templateSchema), async (req, res) => {
+  const admin = (req as unknown as AdminRequest).admin;
+  const body = (req as unknown as { validated: { body: z.infer<typeof templateSchema>["body"] } }).validated.body;
+
+  const template = await prisma.messageTemplate.create({
+    data: {
+      name: body.name,
+      category: body.category,
+      language: body.language,
+      header: body.header ?? null,
+      body: body.body,
+      footer: body.footer ?? null,
+      buttons: (body.buttons ?? null) as Prisma.InputJsonValue,
+      status: body.status,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      action: "TEMPLATE_CREATE",
+      targetType: "message_template",
+      targetId: template.id,
+      details: { name: template.name },
+    },
+  });
+
+  res.json(ok(template));
+});
+
+const templateUpdateSchema = z.object({
+  params: z.object({ id: z.string() }),
+  body: z.object({
+    name: z.string().min(1).max(100).optional(),
+    category: z.string().optional(),
+    language: z.string().optional(),
+    header: z.string().max(60).optional().nullable(),
+    body: z.string().min(1).max(1024).optional(),
+    footer: z.string().max(60).optional().nullable(),
+    buttons: z
+      .array(z.object({ id: z.string(), title: z.string() }))
+      .max(3)
+      .optional()
+      .nullable(),
+    status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).optional(),
+  }),
+});
+
+whatsappRouter.put("/templates/:id", validate(templateUpdateSchema), async (req, res) => {
+  const admin = (req as unknown as AdminRequest).admin;
+  const { id } = (req as unknown as { validated: { params: { id: string } } }).validated.params;
+  const body = (req as unknown as { validated: { body: Record<string, unknown> } }).validated.body;
+
+  const existing = await prisma.messageTemplate.findUnique({ where: { id } });
+  if (!existing) throw new AppError(404, "Template not found");
+
+  const updated = await prisma.messageTemplate.update({
+    where: { id },
+    data: body,
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      action: "TEMPLATE_UPDATE",
+      targetType: "message_template",
+      targetId: id,
+      details: { name: updated.name },
+    },
+  });
+
+  res.json(ok(updated));
+});
+
+whatsappRouter.delete("/templates/:id", async (req, res) => {
+  const admin = (req as unknown as AdminRequest).admin;
+  const { id } = req.params;
+
+  const existing = await prisma.messageTemplate.findUnique({ where: { id } });
+  if (!existing) throw new AppError(404, "Template not found");
+
+  await prisma.messageTemplate.delete({ where: { id } });
+
+  await prisma.auditLog.create({
+    data: {
+      adminId: admin.id,
+      action: "TEMPLATE_DELETE",
+      targetType: "message_template",
+      targetId: id,
+      details: { name: existing.name },
+    },
+  });
+
+  res.json(ok({ message: "Template deleted" }));
+});
+
+// ── Message Logs ─────────────────────────────────────────────
+
+whatsappRouter.get("/messages", async (req, res) => {
+  const result = await getMessageLogs({
+    page: Number(req.query.page ?? 1),
+    limit: Number(req.query.limit ?? 50),
+    direction: req.query.direction as string | undefined,
+    phone: req.query.phone as string | undefined,
+    status: req.query.status as string | undefined,
+  });
+  res.json(ok(result.items, { page: result.page, limit: result.limit, total: result.total, totalPages: result.totalPages }));
+});
+
+// ── Sessions (existing, preserved) ───────────────────────────
 
 whatsappRouter.get("/stats", async (_req, res) => {
   const [sessions, moves, players] = await Promise.all([
@@ -63,12 +302,21 @@ whatsappRouter.get("/sessions/:id", async (req, res) => {
       joiner: true,
       winner: true,
       category: true,
-      moves: { include: { question: true, askedByUser: { select: { phone: true } }, answeredByUser: { select: { phone: true } } }, orderBy: { createdAt: "asc" } },
+      moves: {
+        include: {
+          question: true,
+          askedByUser: { select: { phone: true } },
+          answeredByUser: { select: { phone: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!session) throw new AppError(404, "Session not found");
   res.json(ok(session));
 });
+
+// ── Test Send ────────────────────────────────────────────────
 
 const testSchema = z.object({
   body: z.object({
@@ -80,8 +328,10 @@ const testSchema = z.object({
 whatsappRouter.post("/test-send", validate(testSchema), async (req, res) => {
   const body = (req as unknown as { validated: { body: { phone: string; message: string } } }).validated.body;
   const admin = (req as unknown as AdminRequest).admin;
-  const result = await sendText(body.phone, body.message);
+  const result = await sendTextMessage(body.phone, body.message, {});
   if (!result.ok) throw new AppError(500, `Failed to send: ${result.error ?? "unknown"}`);
-  await prisma.auditLog.create({ data: { adminId: admin.id, action: "TEST_SEND", targetType: "whatsapp", details: { phone: body.phone } } });
+  await prisma.auditLog.create({
+    data: { adminId: admin.id, action: "TEST_SEND", targetType: "whatsapp", details: { phone: body.phone } },
+  });
   res.json(ok({ message: "Message sent" }));
 });

@@ -9,6 +9,7 @@ import { config } from "./config";
 import { publicRouter } from "./routes/public";
 import { adminRouter } from "./routes/admin";
 import { webhookRouter } from "./routes/webhook";
+import { monetizationRouter } from "./routes/monetization";
 import { notFoundHandler, errorHandler } from "./middleware/error";
 import { prisma } from "./lib/prisma";
 import { logger } from "./lib/logger";
@@ -49,6 +50,7 @@ export function createApp() {
   app.use("/api/public", publicRouter);
   app.use("/api/admin", adminRouter);
   app.use("/api/webhooks", webhookRouter);
+  app.use("/api/monetization", monetizationRouter);
 
   app.get("/", (_req, res) => {
     res.json({ name: "400QUES API", version: config.deployment.version, status: "running" });

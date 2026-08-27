@@ -45,6 +45,11 @@ const DEFAULT_SETTINGS: SettingInput[] = [
   { key: "contribution.perDayLimit", value: "50", type: "number", group: "contribution", description: "Max contributions per phone per day", public: false },
   { key: "contribution.enabled", value: "true", type: "boolean", group: "contribution", description: "Enable question contributions", public: true },
 
+  // ===== AI duplicate detection (Google AI) =====
+  { key: "ai.duplicateDetectionEnabled", value: "true", type: "boolean", group: "ai", description: "Enable Google AI duplicate detection on new contributions", public: false },
+  { key: "ai.model", value: "gemini-2.0-flash", type: "string", group: "ai", description: "Google AI model used for duplicate detection", public: false },
+  { key: "ai.maxCandidates", value: "5", type: "number", group: "ai", description: "Max candidate questions sent to Google AI", public: false },
+
   // ===== Uploads =====
   { key: "uploads.maxSizeMB", value: "5", type: "number", group: "uploads", description: "Max screenshot upload size in MB", public: true },
   { key: "uploads.allowedTypes", value: "image/png,image/jpeg,image/webp,image/gif", type: "string", group: "uploads", description: "Comma separated allowed MIME types", public: false },

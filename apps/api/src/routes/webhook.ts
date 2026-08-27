@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { verifyWebhook } from "../lib/whatsapp";
 import { handleWhatsAppMessage } from "../services/game";
+import { logMessage } from "../services/messaging";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { notifyAdmins } from "../services/notifications";
@@ -72,6 +73,14 @@ webhookRouter.post("/whatsapp", async (req, res) => {
 
         if (value.statuses) {
           logger.debug("[whatsapp] delivery status", value.statuses.map((s) => ({ id: s.id, status: s.status })));
+          for (const status of value.statuses) {
+            if (status.id && status.status) {
+              await prisma.messageLog.updateMany({
+                where: { waMessageId: status.id },
+                data: { status: status.status },
+              }).catch(() => undefined);
+            }
+          }
         }
 
         const messages = value.messages ?? [];
@@ -98,6 +107,23 @@ webhookRouter.post("/whatsapp", async (req, res) => {
 
           try {
             logger.info("[whatsapp] incoming", { from, type: message.type, text: (text ?? buttonId ?? listId ?? "").slice(0, 80) });
+
+            const content: Record<string, unknown> = { type: message.type };
+            if (text) content.text = text;
+            if (buttonId) content.buttonId = buttonId;
+            if (listId) content.listId = listId;
+            if (contactName) content.contactName = contactName;
+
+            await logMessage({
+              direction: "inbound",
+              phone: from,
+              type: message.type ?? "unknown",
+              status: "received",
+              content,
+              waMessageId: id,
+              metadata: { timestamp: message.timestamp },
+            });
+
             await handleWhatsAppMessage({ phone: from, name: contactName, text, buttonId, listId, timestamp: message.timestamp });
             emitAdminEvent("whatsapp:message", { from, text: (text ?? buttonId ?? listId ?? "").slice(0, 100) });
           } catch (err) {

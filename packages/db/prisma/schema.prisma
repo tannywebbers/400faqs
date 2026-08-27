@@ -12,8 +12,9 @@ datasource db {
 // ============================================================
 
 enum Role {
-  SUPER_ADMIN
+  USER
   ADMIN
+  SUPER_ADMIN
 }
 
 enum UserStatus {
@@ -165,6 +166,8 @@ model User {
   sessionsWon        Session[]    @relation("WonSessions")
   movesAsked         GameMove[]   @relation("AskedMoves")
   movesAnswered      GameMove[]   @relation("AnsweredMoves")
+  monetizationGates  MonetizationGate[]
+  monetizationEvents MonetizationEvent[]
 }
 
 // ============================================================
@@ -266,6 +269,8 @@ model Session {
   updatedAt         DateTime      @updatedAt
 
   moves GameMove[]
+  monetizationGates  MonetizationGate[]
+  monetizationEvents MonetizationEvent[]
 
   @@index([status, createdAt])
   @@index([inviteCode])
@@ -524,4 +529,141 @@ model ProcessedEvent {
 
   @@index([eventId])
   @@index([processedAt])
+}
+
+// ============================================================
+// MONETIZATION (AD PROVIDERS, SNIPPETS, GATES, EVENTS)
+// ============================================================
+
+enum GateStatus {
+  PENDING
+  VERIFIED
+  EXPIRED
+  FAILED
+  CANCELLED
+}
+
+model AdProvider {
+  id            String  @id @default(cuid())
+  name          String
+  type          String  @default("CUSTOM")
+  description   String?
+  enabled       Boolean @default(true)
+  archived      Boolean @default(false)
+  priority      Int     @default(100)
+  configuration Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  snippets AdSnippet[]
+  gates    MonetizationGate[]
+
+  @@index([enabled, archived, priority])
+}
+
+model AdSnippet {
+  id         String      @id @default(cuid())
+  name       String
+  providerId String?
+  provider   AdProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  type       String      @default("HTML")
+  content    String?
+  directLink String?
+  placement  String      @default("TOP")
+  enabled    Boolean     @default(true)
+  archived   Boolean     @default(false)
+  priority   Int         @default(100)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([enabled, archived, placement, priority])
+}
+
+model MonetizationGate {
+  id            String     @id @default(cuid())
+  sessionId     String
+  session       Session    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  round         Int        @default(0)
+  publicToken   String     @unique
+  status        GateStatus @default(PENDING)
+  unlockAt      DateTime
+  expiresAt     DateTime
+  verifiedAt    DateTime?
+  attempts      Int        @default(0)
+  code          String?
+  codeHash      String?
+  codeExpiresAt DateTime?
+  providerId    String?
+  provider      AdProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  snippetIds    Json?
+  createdAt     DateTime   @default(now())
+
+  events MonetizationEvent[]
+
+  @@index([sessionId, status])
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+model MonetizationEvent {
+  id        String   @id @default(cuid())
+  gateId    String?
+  gate      MonetizationGate? @relation(fields: [gateId], references: [id], onDelete: Cascade)
+  sessionId String?
+  session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type      String
+  status    String   @default("recorded")
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([gateId])
+  @@index([sessionId, createdAt])
+  @@index([userId])
+  @@index([type, createdAt])
+}
+
+// ============================================================
+// WHATSAPP MESSAGING
+// ============================================================
+
+model MessageTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  category    String   @default("UTILITY")
+  language    String   @default("en")
+  header      String?
+  body        String
+  footer      String?
+  buttons     Json?
+  status      String   @default("DRAFT")
+  waTemplateId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([category])
+}
+
+model MessageLog {
+  id          String   @id @default(cuid())
+  direction   String
+  phone       String
+  userId      String?
+  type        String
+  status      String   @default("sent")
+  content     Json
+  templateId  String?
+  waMessageId String?
+  error       String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([direction, createdAt])
+  @@index([phone])
+  @@index([status])
+  @@index([templateId])
 }

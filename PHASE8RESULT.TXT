@@ -1,0 +1,144 @@
+Phase 8 Complete — Monetization Engine, Ad Providers, Verification Links & Round-Based Gating
+
+BUILD-ONLY PHASE: NO TESTING WAS PERFORMED. No runtime, API, WhatsApp, ad-provider or
+database tests were executed. Verify everything manually before going live.
+
+What was built:
+
+1. PRISMA SCHEMA (packages/db/prisma/schema.prisma)
+   - GateStatus enum: PENDING / VERIFIED / EXPIRED / FAILED / CANCELLED
+   - AdProvider model: name, type (default CUSTOM), description, enabled, archived,
+     priority, configuration (JSON), relations to snippets + gates, indexes
+   - AdSnippet model: providerId (optional, onDelete SetNull), type (default HTML),
+     content, directLink, placement (default TOP), enabled, archived, priority, indexes
+   - MonetizationGate model: sessionId + userId (Cascade), round, unique publicToken,
+     status (default PENDING), unlockAt, expiresAt, verifiedAt, attempts, code, codeHash,
+     codeExpiresAt, providerId (SetNull), snippetIds (JSON), events relation, indexes.
+     Round is stored so a player who already verified for a round is never re-gated.
+   - MonetizationEvent model: optional gateId (Cascade), optional sessionId/userId
+     (SetNull), type, status (default "recorded"), metadata (JSON), createdAt, indexes
+   - Back-relations added to Session (monetizationGates, monetizationEvents) and User
+   - `prisma generate` ran successfully. `prisma db push` CANNOT run in this environment
+     (DATABASE_URL is not set) — apply the migration to your real database before go-live.
+
+2. BACKEND: Monetization Core Service (apps/api/src/services/monetization.ts)
+   - Read + validate all "monetization.*" settings (fallback defaults, clamped ranges)
+   - generatePublicToken(): 24-byte crypto-random hex (never DB ids on public pages)
+   - generateVerificationCode(): crypto.randomInt numeric, or crypto-random alphanumeric
+     (no ambiguous chars); server-side constant-time comparison (sha256 codeHash)
+   - getOrCreateGate(): creates a gate for an eligible player or reuses a still-valid
+     PENDING gate (no duplicate links on repeat pings)
+   - resolveBlockingGate(): returns active PENDING gate; auto-expires a dead gate and
+     recreates it (user gets a fresh link). Returns null when the player was never gated
+     or already VERIFIED, so normal gameplay is never falsely locked
+   - verifyGateCode(): one-time use, expiry, max-attempts enforcement with fine-grained
+     reasons for the game engine (NO_ACTIVE_GATE / NOT_YOUR_GATE / NO_CODE /
+     INVALID_CODE / EXPIRED_CODE / MAX_ATTEMPTS)
+   - requestVerificationCode(): server-side countdown (unlockAt) enforcement — the
+     frontend timer is only visual; reuses an existing valid code across refreshes/tabs
+   - getGateStatusByToken(): valid / verified / expired / invalid / failed / cancelled
+     (+ remainingMs + countdownSeconds + codeAvailable for the page)
+   - selectAdsForGate() / selectSnippetsForPage(): rotation (priority or random) with
+     default provider/snippet overrides; direct-link fallback to first snippet's link
+   - monetizationLink(): builds https://<host>/monetize/<publicToken>
+   - recordEvent() + getMonetizationStats(): analytics foundation (totals by status,
+     success rate, average verification seconds, failed attempts, gates per day)
+
+3. BACKEND: Public Monetization Routes (apps/api/src/routes/monetization.ts)
+   - GET  /api/monetization/:token — gate status + page ad snippets + direct link
+     (records LINK_OPENED; rate limited, no auth required, no secrets leaked)
+   - POST /api/monetization/:token/code — request a verification code (server countdown)
+   - Mounted in apps/api/src/app.ts; dedicated monetization + code rate limiters added
+     to apps/api/src/middleware/rateLimit.ts
+
+4. BACKEND: Admin Monetization Routes (apps/api/src/routes/admin/monetization.ts)
+   - GET/PUT /config           — read/update all monetization settings (validated, audit logged)
+   - GET  /stats               — analytics foundation aggregate
+   - GET/POST /providers, PUT /providers/:id, PATCH /providers/:id/status
+   - GET/POST /snippets, PUT /snippets/:id, PATCH /snippets/:id/status
+   - GET  /gates               — read-only, filterable by status/session/user/phone
+   - GET  /events              — read-only event feed, filterable by type/session/user/date
+   - Providers/snippets are never hard-deleted: status patch archives them (soft delete)
+   - Every admin mutation writes a prisma.auditLog entry + a monetization event
+   - Mounted at /api/admin/monetization in apps/api/src/routes/admin/index.ts
+
+5. BACKEND: Game Engine Integration (apps/api/src/services/game.ts)
+   - promptNumberOrTap() now runs the gate check BEFORE the next prompt: when
+     turnsPlayed >= roundInterval AND turnsPlayed % roundInterval === 0 AND the player
+     has no VERIFIED gate for the current round, the player receives the verification
+     link, the opponent gets a "waiting" notice, and the prompt is deferred (game pauses)
+   - processMessage() gate block: while a gate is PENDING this player is blocked from
+     gameplay; manage/status/help/cancel/end/leave commands and the "manage" button stay
+     available, everything else routes to handleGateInteraction()
+   - handleGateInteraction(): code-shaped input is run through verifyGateCode(); on
+     success sends verification-success + notifies the opponent ("continuing");
+     MAX_ATTEMPTS / EXPIRED_CODE issues a fresh link; invalid input re-prompts
+   - resumeTurnAfterVerification(): re-fetches the session (round unchanged, gate already
+     VERIFIED so no re-gate) and re-prompts the correct NUMBER / TRUTH-DARE tap state
+   - Gates cancelled on session finish, end, leave, expire and timeout
+     (game.ts finishGame/endSession + session.service.ts expireSession/timeoutSession)
+   - New bot message strings in apps/api/src/services/messages.ts
+     (verificationRequired, verificationBlocked, verificationInvalid, verificationMaxed,
+     verificationSuccess, opponentVerifying, opponentVerified)
+
+6. FRONTEND: Public Verification Page (apps/web/src/app/(public)/monetize/[token]/page.tsx)
+   - Mobile-first; loads gate status + ad snippets from /api/monetization/:token
+   - Live countdown (visual only — the server enforces unlockAt), "Get my verification
+     code" button (hidden until the countdown ends), large copyable code with feedback
+   - Renders configured ad snippets (HTML) and the configurable sponsor/direct-link button
+   - Distinct success, expired, failed, cancelled and invalid states
+
+7. FRONTEND: Admin Monetization Dashboard (apps/web/src/app/admin/monetization/page.tsx)
+   Six tabbed sections replacing the placeholder:
+   - Overview: monetization status card, gate totals/success rate/avg time/failed stats,
+     last-7-days gates bar chart
+   - Settings: enable switch, gate interval, countdown, code length/type/expiry, link
+     expiry, max attempts, rotation, defaults, direct link + toggle (all validated on API)
+   - Ad Providers: create/edit form + table with priority, snippet counts, enable/disable
+     toggle and archive (soft delete)
+   - Ad Snippets: create/edit form (provider, type, placement, content HTML, direct link)
+     + table with status and archive
+   - Verification Gates: read-only table with status filters and copyable tokens
+   - Events: read-only event feed with type filters
+
+Typecheck results:
+- packages/db: Clean (build run — this emits dist/ which the API depends on)
+- apps/api: Clean (0 errors)
+- apps/web: Clean (0 errors)
+
+IMPORTANT INFRASTRUCTURE NOTE:
+The 22 "pre-existing" API typecheck errors from Phase 7 were NOT real code errors. They
+were artifacts of @400ques/db never being built (packages/db has no dist/, so the Prisma
+client resolved to `any` across the whole workspace, manufacturing implicit-any errors).
+Running `npm run build` in packages/db once produces dist/index.d.ts, which makes the
+workspace resolve real types — and the API now typechecks with 0 errors. Keep packages/db
+built (add it to CI/build order) so this stays clean.
+
+Files modified:
+- packages/db/prisma/schema.prisma — Added AdProvider, AdSnippet, MonetizationGate,
+  MonetizationEvent models + GateStatus enum + Session/User back-relations
+- apps/api/src/app.ts — Mounted /api/monetization public router
+- apps/api/src/routes/admin/index.ts — Mounted /api/admin/monetization router
+- apps/api/src/middleware/rateLimit.ts — Added monetizationLimiter + codeLimiter
+- apps/api/src/services/game.ts — Gate check in promptNumberOrTap, processMessage gate
+  block, handleGateInteraction, resumeTurnAfterVerification, gate cancellation on
+  finish/end/leave; promptNumberOrTap signature now takes the fresh session
+- apps/api/src/services/session.service.ts — Cancels gates in expireSession/timeoutSession
+- apps/api/src/services/messages.ts — Added 7 verification-related bot message strings
+- apps/api/src/routes/admin/monetization.ts — (see "created") JSON typing fix pass also
+  applied to admin/whatsapp.ts and services/messaging.ts (metadata/buttons Json casts)
+- apps/web/src/app/admin/monetization/page.tsx — Full tabbed admin dashboard
+
+Files created:
+- apps/api/src/services/monetization.ts — Core monetization engine service
+- apps/api/src/routes/monetization.ts — Public (no-auth) verification endpoints
+- apps/api/src/routes/admin/monetization.ts — Admin management endpoints
+- apps/web/src/app/(public)/monetize/[token]/page.tsx — Public verification page
+- packages/db/dist/ — First build output of the db package (required for types)
+
+Next steps (Phase 9+):
+- Advanced analytics (funnel, A/B, per-provider payout tracking)
+- Marketing campaigns / bulk messaging (carried over from Phase 7)
+- Meta template approval workflow
+- Ad network integrations (Google AdSense, etc.) via the AdProvider configuration JSON
+- Revenue/payout ledger based on MonetizationEvent data

@@ -86,6 +86,7 @@ publicRouter.get("/categories", async (req, res) => {
         description: c.description,
         icon: c.icon,
         color: c.color,
+        gameType: c.gameType,
         questionCount: c._count.questions,
         contributionCount: c._count.contributions,
         playCount: c.playCount,
@@ -118,6 +119,57 @@ publicRouter.get("/categories/:slug", async (req, res) => {
       contributorCount,
       reportCount,
       recentlyAdded: category.questions,
+    })
+  );
+});
+
+const questionSorts = ["newest", "plays"] as const;
+
+publicRouter.get("/categories/:slug/questions", async (req, res) => {
+  const { page, limit, skip } = parsePagination(req.query);
+  const q = String(req.query.q ?? "").trim();
+  const type = (req.query.type as string | undefined) ?? undefined;
+  const difficulty = req.query.difficulty as string | undefined;
+  const sort = questionSorts.includes(req.query.sort as (typeof questionSorts)[number]) ? (req.query.sort as (typeof questionSorts)[number]) : "newest";
+
+  const category = await prisma.category.findFirst({ where: { slug: req.params.slug, status: "ACTIVE" } });
+  if (!category) throw new AppError(404, "Category not found");
+
+  const where: Record<string, unknown> = { categoryId: category.id, status: "APPROVED" };
+  if (q) where.text = { contains: q, mode: "insensitive" };
+  if (type) where.type = type;
+  if (difficulty) {
+    const d = Number(difficulty);
+    where.difficulty = Number.isFinite(d) ? Math.min(5, Math.max(1, d)) : undefined;
+    if (where.difficulty === undefined) delete where.difficulty;
+  }
+
+  const [total, items] = await Promise.all([
+    prisma.question.count({ where }),
+    prisma.question.findMany({
+      where,
+      orderBy: sort === "plays" ? [{ playsCount: "desc" }, { createdAt: "desc" }] : [{ createdAt: "desc" }],
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        text: true,
+        type: true,
+        number: true,
+        difficulty: true,
+        playsCount: true,
+        createdAt: true,
+      },
+    }),
+  ]);
+
+  res.json(
+    ok(items, {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      category: { id: category.id, name: category.name, slug: category.slug, gameType: category.gameType },
     })
   );
 });
@@ -190,10 +242,60 @@ publicRouter.post("/contributions", contributionLimiter, validate(contributionSc
 publicRouter.get("/contributions/:ticket", async (req, res) => {
   const contribution = await prisma.contribution.findUnique({
     where: { ticket: req.params.ticket },
-    select: { ticket: true, status: true, question: true, aiScore: true, rejectionReason: true, createdAt: true },
+    select: { ticket: true, status: true, question: true, type: true, aiScore: true, rejectionReason: true, aiResult: true, createdAt: true },
   });
   if (!contribution) throw new AppError(404, "Submission not found");
-  res.json(ok(contribution));
+  res.json(ok({ ...contribution, classification: duplicateClassification(contribution.aiResult) }));
+});
+
+const contributionStatuses = ["PENDING", "APPROVED", "REJECTED", "FLAGGED"] as const;
+
+publicRouter.get("/contributions", async (req, res) => {
+  const { page, limit, skip } = parsePagination(req.query);
+  const phone = String(req.query.phone ?? "").trim();
+  if (!phone) throw new AppError(400, "phone query parameter is required");
+  const status = req.query.status as string | undefined;
+  if (status && !contributionStatuses.includes(status as (typeof contributionStatuses)[number])) {
+    throw new AppError(400, `Invalid status. Allowed: ${contributionStatuses.join(", ")}`);
+  }
+
+  const where: Record<string, unknown> = { userPhone: phone };
+  if (status) where.status = status;
+
+  const [total, items] = await Promise.all([
+    prisma.contribution.count({ where }),
+    prisma.contribution.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      include: {
+        category: { select: { id: true, slug: true, name: true, color: true, icon: true } },
+        duplicateOf: { select: { id: true, text: true } },
+      },
+    }),
+  ]);
+
+  res.json(
+    ok(
+      items.map((c) => ({
+        id: c.id,
+        ticket: c.ticket,
+        question: c.question,
+        type: c.type,
+        status: c.status,
+        aiScore: c.aiScore,
+        rejectionReason: c.rejectionReason,
+        categoryId: c.categoryId,
+        category: c.category,
+        duplicateOf: c.duplicateOf,
+        classification: duplicateClassification(c.aiResult),
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+      })),
+      { page, limit, total, totalPages: Math.ceil(total / limit) }
+    )
+  );
 });
 
 // ============================================================
@@ -265,6 +367,54 @@ publicRouter.get("/reports/:ticket", async (req, res) => {
   res.json(ok(report));
 });
 
+const reportStatuses = ["OPEN", "IN_PROGRESS", "RESOLVED", "DISMISSED"] as const;
+
+publicRouter.get("/reports", async (req, res) => {
+  const { page, limit, skip } = parsePagination(req.query);
+  const phone = String(req.query.phone ?? "").trim();
+  if (!phone) throw new AppError(400, "phone query parameter is required");
+  const status = req.query.status as string | undefined;
+  if (status && !reportStatuses.includes(status as (typeof reportStatuses)[number])) {
+    throw new AppError(400, `Invalid status. Allowed: ${reportStatuses.join(", ")}`);
+  }
+
+  const where: Record<string, unknown> = { reporterPhone: phone };
+  if (status) where.status = status;
+
+  const [total, items] = await Promise.all([
+    prisma.questionReport.count({ where }),
+    prisma.questionReport.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      include: {
+        category: { select: { id: true, slug: true, name: true } },
+        question: { select: { id: true, text: true } },
+      },
+    }),
+  ]);
+
+  res.json(
+    ok(
+      items.map((r) => ({
+        id: r.id,
+        ticket: r.ticket,
+        reason: r.reason,
+        notes: r.notes,
+        screenshotUrl: r.screenshotUrl,
+        status: r.status,
+        resolution: r.resolution,
+        category: r.category,
+        question: r.question,
+        createdAt: r.createdAt,
+        resolvedAt: r.resolvedAt,
+      })),
+      { page, limit, total, totalPages: Math.ceil(total / limit) }
+    )
+  );
+});
+
 // ============================================================
 // Category requests
 // ============================================================
@@ -311,6 +461,135 @@ publicRouter.get("/category-requests/:id", async (req, res) => {
   if (!row) throw new AppError(404, "Request not found");
   res.json(ok(row));
 });
+
+const categoryRequestStatuses = ["PENDING", "APPROVED", "REJECTED"] as const;
+
+publicRouter.get("/category-requests", async (req, res) => {
+  const { page, limit, skip } = parsePagination(req.query);
+  const phone = String(req.query.phone ?? "").trim();
+  if (!phone) throw new AppError(400, "phone query parameter is required");
+  const status = req.query.status as string | undefined;
+  if (status && !categoryRequestStatuses.includes(status as (typeof categoryRequestStatuses)[number])) {
+    throw new AppError(400, `Invalid status. Allowed: ${categoryRequestStatuses.join(", ")}`);
+  }
+
+  const where: Record<string, unknown> = { requestorPhone: phone };
+  if (status) where.status = status;
+
+  const [total, items] = await Promise.all([
+    prisma.categoryRequest.count({ where }),
+    prisma.categoryRequest.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+    }),
+  ]);
+
+  res.json(
+    ok(
+      items.map((r) => ({
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        examples: r.examples,
+        reason: r.reason,
+        status: r.status,
+        note: r.note,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      })),
+      { page, limit, total, totalPages: Math.ceil(total / limit) }
+    )
+  );
+});
+
+// ============================================================
+// Profile (phone-based user stats for the /app experience)
+// ============================================================
+
+publicRouter.get("/profile", async (req, res) => {
+  const phone = String(req.query.phone ?? "").trim();
+  if (!phone) throw new AppError(400, "phone query parameter is required");
+
+  const user = await prisma.user.findUnique({
+    where: { phone },
+    include: {
+      badges: { select: { awardedAt: true, badge: { select: { id: true, name: true, slug: true, icon: true, color: true } } } },
+    },
+  });
+
+  const [contributionCounts, reportCounts, categoryRequestCounts, recentContributions, recentReports, recentRequests] = await Promise.all([
+    prisma.contribution.groupBy({ by: ["status"], where: { userPhone: phone }, _count: { _all: true } }),
+    prisma.questionReport.groupBy({ by: ["status"], where: { reporterPhone: phone }, _count: { _all: true } }),
+    prisma.categoryRequest.groupBy({ by: ["status"], where: { requestorPhone: phone }, _count: { _all: true } }),
+    prisma.contribution.findMany({
+      where: { userPhone: phone },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { id: true, ticket: true, question: true, status: true, categoryId: true, createdAt: true, aiResult: true, category: { select: { name: true } } },
+    }),
+    prisma.questionReport.findMany({
+      where: { reporterPhone: phone },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { id: true, ticket: true, reason: true, status: true, createdAt: true },
+    }),
+    prisma.categoryRequest.findMany({
+      where: { requestorPhone: phone },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { id: true, name: true, status: true, createdAt: true },
+    }),
+  ]);
+
+  const toCount = (rows: { status: string; _count: { _all: number } }[]) => {
+    const m: Record<string, number> = {};
+    for (const r of rows) m[r.status] = r._count._all;
+    return m;
+  };
+
+  res.json(
+    ok({
+      phone: maskPhone(phone),
+      user: user
+        ? {
+            displayName: user.displayName ?? user.name,
+            name: user.name,
+            language: user.language,
+            status: user.status,
+            totalSessions: user.totalSessions,
+            totalAnswered: user.totalAnswered,
+            totalAsked: user.totalAsked,
+            firstSeenAt: user.firstSeenAt,
+            lastSeenAt: user.lastSeenAt,
+          }
+        : null,
+      badges: user?.badges.map((b) => ({ ...b.badge, awardedAt: b.awardedAt })) ?? [],
+      contributionCounts: toCount(contributionCounts as unknown as { status: string; _count: { _all: number } }[]),
+      reportCounts: toCount(reportCounts as unknown as { status: string; _count: { _all: number } }[]),
+      categoryRequestCounts: toCount(categoryRequestCounts as unknown as { status: string; _count: { _all: number } }[]),
+      recent: {
+        contributions: recentContributions.map((c) => ({ id: c.id, ticket: c.ticket, question: c.question, status: c.status, categoryName: c.category.name, classification: duplicateClassification(c.aiResult), createdAt: c.createdAt })),
+        reports: recentReports.map((r) => ({ id: r.id, ticket: r.ticket, reason: r.reason, status: r.status, createdAt: r.createdAt })),
+        categoryRequests: recentRequests.map((r) => ({ id: r.id, name: r.name, status: r.status, createdAt: r.createdAt })),
+      },
+    })
+  );
+});
+
+function duplicateClassification(aiResult: unknown): string | null {
+  if (!aiResult || typeof aiResult !== "object") return null;
+  const dup = (aiResult as { duplicate?: { classification?: unknown } }).duplicate;
+  if (!dup || typeof dup !== "object") return null;
+  const cls = dup.classification;
+  return typeof cls === "string" ? cls : null;
+}
+
+function maskPhone(phone: string): string {
+  if (phone.length <= 6) return phone;
+  return phone.slice(0, 3) + "*****" + phone.slice(-2);
+}
 
 // ============================================================
 // Leaderboard / Search / Contact / Ads

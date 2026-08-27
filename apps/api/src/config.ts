@@ -45,6 +45,13 @@ export const config = {
     model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
   },
 
+  googleAi: {
+    apiKey: process.env.GOOGLE_AI_API_KEY ?? "",
+    model: process.env.GOOGLE_AI_MODEL ?? "gemini-2.0-flash",
+    endpoint: process.env.GOOGLE_AI_ENDPOINT ?? "https://generativelanguage.googleapis.com/v1beta",
+    timeoutMs: int(process.env.GOOGLE_AI_TIMEOUT_MS, 15000),
+  },
+
   uploads: {
     dir: path.resolve(process.cwd(), "uploads"),
     publicUrl: process.env.UPLOADS_PUBLIC_URL ?? "/uploads",

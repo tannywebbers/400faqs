@@ -20,7 +20,18 @@ settingsRouter.get("/groups", async (_req, res) => {
 
 const updateSchema = z.object({
   body: z.object({
-    entries: z.array(z.object({ key: z.string().min(1), value: z.string().max(5000) })).min(1).max(200),
+    entries: z
+      .array(
+        z.object({
+          key: z.string().min(1),
+          value: z.string().max(5000),
+          public: z.boolean().optional(),
+          group: z.string().max(100).optional(),
+          description: z.string().max(500).optional().nullable(),
+        })
+      )
+      .min(1)
+      .max(200),
   }),
 });
 

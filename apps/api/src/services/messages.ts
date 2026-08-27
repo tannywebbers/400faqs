@@ -307,4 +307,42 @@ export const messages = {
     lines.push("Send /status to see the full state.");
     return lines.join("\n");
   },
+
+  verificationRequired(link: string): string {
+    return (
+      `🔒 *Quick verification*\n\n` +
+      `To keep 400QUES free for everyone, please complete a short step before your next turn.\n\n` +
+      `1. Tap this link\n${link}\n` +
+      `2. Wait a few seconds\n` +
+      `3. Copy your verification code\n` +
+      `4. Send the code right here\n\n` +
+      `It only takes a moment ⏱️`
+    );
+  },
+
+  verificationBlocked(): string {
+    return "Please complete the verification using the link we sent you, then send the verification code here.";
+  },
+
+  verificationInvalid(): string {
+    return "That verification code is invalid or expired. Please use your active verification link to get a new code.";
+  },
+
+  verificationMaxed(): string {
+    return "Too many incorrect attempts. Please use the new verification link below to get a fresh code.";
+  },
+
+  verificationSuccess(): string {
+    return "✅ *Verification complete.*\n\nYour session can now continue.";
+  },
+
+  opponentVerifying(name?: string | null): string {
+    const who = name ? `${name} is` : "Your opponent is";
+    return `${who} completing a quick step.\n\nWe'll continue as soon as they're done.`;
+  },
+
+  opponentVerified(name?: string | null): string {
+    const who = name ?? "Your opponent";
+    return `${who} completed the quick step.\n\nContinuing the game! 🎮`;
+  },
 };

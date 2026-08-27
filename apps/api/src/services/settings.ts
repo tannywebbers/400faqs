@@ -15,6 +15,12 @@ export async function getAllSettings() {
   return prisma.setting.findMany({ orderBy: { group: "asc" } });
 }
 
+export function settingsToRecord(rows: { key: string; value: string }[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const r of rows) map[r.key] = r.value;
+  return map;
+}
+
 export async function updateSetting(key: string, value: string) {
   const setting = await prisma.setting.upsert({
     where: { key },
@@ -25,10 +31,35 @@ export async function updateSetting(key: string, value: string) {
   return setting;
 }
 
-export async function updateManySettings(entries: { key: string; value: string }[]) {
+export type SettingEntry = {
+  key: string;
+  value: string;
+  public?: boolean;
+  group?: string;
+  description?: string;
+};
+
+export async function updateManySettings(entries: SettingEntry[]) {
   const result = [];
   for (const e of entries) {
-    result.push(await prisma.setting.upsert({ where: { key: e.key }, update: { value: e.value }, create: { key: e.key, value: e.value } }));
+    result.push(
+      await prisma.setting.upsert({
+        where: { key: e.key },
+        update: {
+          value: e.value,
+          ...(typeof e.public === "boolean" ? { public: e.public } : {}),
+          ...(e.group ? { group: e.group } : {}),
+          ...(e.description !== undefined ? { description: e.description } : {}),
+        },
+        create: {
+          key: e.key,
+          value: e.value,
+          public: e.public ?? false,
+          group: e.group ?? "general",
+          description: e.description ?? null,
+        },
+      })
+    );
   }
   await cacheDel(cacheKeys.publicSettings);
   return result;
