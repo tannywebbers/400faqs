@@ -281,6 +281,22 @@ export const messages = {
     return "Something went wrong while processing that action.\n\nPlease try again.";
   },
 
+  systemBusy(): string {
+    return "⚠️ *400QUES is having a moment.*\n\nYour session is safe. Send /manage or /status to pick up where you left off.";
+  },
+
+  retrying(): string {
+    return "⏳ We hit a service hiccup and are retrying.\n\nThis usually clears up within a minute — no need to do anything right now.";
+  },
+
+  sessionRecovered(): string {
+    return "✅ We recovered your game session.\n\nSend /status to continue where you left off.";
+  },
+
+  botBackOnline(): string {
+    return "✅ The service is back.\n\nSend /status to resume your game, or /help for commands.";
+  },
+
   resume(session: {
     categoryName?: string | null;
     round: number;

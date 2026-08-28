@@ -8,6 +8,21 @@ import { prisma } from "./lib/prisma";
 import { logger } from "./lib/logger";
 import cron from "node-cron";
 import { enqueue } from "./lib/queue";
+import { withLock } from "./lib/lock";
+
+// Every scheduled task runs through a distributed lock and an isolated
+// try/catch so duplicate instances or a failed run can never double-fire
+// or crash the process.
+async function guardedCron(name: string, fn: () => Promise<void>): Promise<void> {
+  try {
+    const result = await withLock(`cron:${name}`, 10 * 60, fn);
+    if (result === null) {
+      logger.debug(`[cron] ${name} skipped (lock held)`);
+    }
+  } catch (err) {
+    logger.warn(`[cron] ${name} failed`, (err as Error).message);
+  }
+}
 
 async function main() {
   requireEnv();
@@ -25,35 +40,66 @@ async function main() {
   }
 
   // Cron: sweep stale sessions every 5 minutes
-  cron.schedule("*/5 * * * *", async () => {
-    try {
+  cron.schedule("*/5 * * * *", () => {
+    guardedCron("session-sweep", async () => {
       const sessions = await prisma.session.findMany({ where: { status: { in: ["WAITING", "ACTIVE"] } }, select: { id: true } });
       for (const s of sessions) {
         await enqueue("game", "sweep", { sessionId: s.id }, { attempts: 1 });
       }
-    } catch (err) {
-      logger.warn("[cron] session sweep failed", (err as Error).message);
-    }
+    });
   });
 
   // Cron: promote due scheduled campaigns every minute
-  cron.schedule("* * * * *", async () => {
-    try {
+  cron.schedule("* * * * *", () => {
+    guardedCron("campaign-advance", async () => {
       const { advanceDueCampaigns } = await import("./services/campaign");
       const due = await advanceDueCampaigns();
       if (due > 0) logger.info("[cron] advanced due campaigns", { count: due });
-    } catch (err) {
-      logger.warn("[cron] campaign advance failed", (err as Error).message);
-    }
+    });
   });
 
-  // Cron: daily analytics snapshot at 00:15
-  cron.schedule("15 0 * * *", async () => {
-    try {
+  // Cron: reliability recovery sweep every 5 minutes — reconciles stale
+  // monetization gates, stuck notification/delivery rows and sessions that
+  // slipped past the per-session worker sweep.
+  cron.schedule("*/5 * * * *", () => {
+    guardedCron("recovery", async () => {
+      const { recoverMonetization, recoverStuckNotifications, recoverStuckCampaignDeliveries, recoverStuckSessions } = await import("./services/recovery");
+      const [monetization, notifications, deliveries, sessions] = await Promise.all([
+        recoverMonetization(),
+        recoverStuckNotifications(),
+        recoverStuckCampaignDeliveries(),
+        recoverStuckSessions(),
+      ]);
+      if (monetization.expired + monetization.cancelled + notifications + deliveries + sessions > 0) {
+        logger.info("[cron] recovery sweep", { monetization, notifications, deliveries, sessions });
+      }
+    });
+  });
+
+  // Cron: ensure a broadcast chain exists whenever WhatsApp notifications are
+  // still queued but no worker picked them up (e.g. restart lost the chain).
+  cron.schedule("*/5 * * * *", () => {
+    guardedCron("broadcast-resume", async () => {
+      const pending = await prisma.notification.count({ where: { channel: "WHATSAPP", status: { in: ["PENDING", "SENDING"] } } });
+      if (pending > 0) {
+        await enqueue("notification", "broadcast", {}, { attempts: 1, jobId: "broadcast-chain" });
+      }
+    });
+  });
+
+  // Cron: retention cleanup hourly + daily analytics snapshot at 00:15
+  cron.schedule("0 * * * *", () => {
+    guardedCron("retention-cleanup", async () => {
+      const { runRetentionCleanup } = await import("./services/recovery");
+      const { processedEvents, jobLogs } = await runRetentionCleanup();
+      if (processedEvents + jobLogs > 0) logger.info("[cron] retention cleanup", { processedEvents, jobLogs });
+    });
+  });
+
+  cron.schedule("15 0 * * *", () => {
+    guardedCron("snapshot", async () => {
       await enqueue("snapshot", "capture", {}, { attempts: 1, jobId: "snapshot-daily" });
-    } catch (err) {
-      logger.warn("[cron] snapshot enqueue failed", (err as Error).message);
-    }
+    });
   });
 
   // Cron: update deployment timestamp once at startup

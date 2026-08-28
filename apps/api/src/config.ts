@@ -21,6 +21,13 @@ export const config = {
   apiUrl: process.env.API_URL ?? `http://localhost:${int(process.env.PORT, 4000)}`,
   webUrl: process.env.WEB_URL ?? "http://localhost:3000",
 
+  // Comma-separated list of allowed CORS origins. When unset, the API accepts
+  // any origin (fine for a public, non-cookie-based API).
+  corsOrigins: (process.env.CORS_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+
   databaseUrl: process.env.DATABASE_URL ?? "",
 
   redis: {
@@ -38,6 +45,8 @@ export const config = {
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? "400ques-verify",
     graphVersion: process.env.WHATSAPP_GRAPH_VERSION ?? "v19.0",
     apiBase: process.env.WHATSAPP_API_BASE ?? "https://graph.facebook.com",
+    // Optional app secret enables X-Hub-Signature-256 verification of webhooks.
+    appSecret: process.env.WHATSAPP_APP_SECRET ?? "",
   },
 
   openai: {
@@ -53,7 +62,7 @@ export const config = {
   },
 
   uploads: {
-    dir: path.resolve(process.cwd(), "uploads"),
+    dir: path.resolve(process.env.UPLOADS_DIR ?? path.join(process.cwd(), "uploads")),
     publicUrl: process.env.UPLOADS_PUBLIC_URL ?? "/uploads",
   },
 
@@ -68,6 +77,18 @@ export const config = {
     auth: int(process.env.RATE_LIMIT_AUTH, 10),
   },
 
+  queue: {
+    defaultAttempts: Math.max(1, int(process.env.QUEUE_DEFAULT_ATTEMPTS, 3)),
+    backoffDelayMs: Math.max(100, int(process.env.QUEUE_BACKOFF_MS, 2000)),
+    concurrency: Math.max(1, int(process.env.QUEUE_CONCURRENCY, 4)),
+    jobLogRetentionDays: Math.max(1, int(process.env.JOB_LOG_RETENTION_DAYS, 14)),
+  },
+
+  notifications: {
+    maxBroadcastRecipients: Math.max(1, int(process.env.NOTIFICATION_MAX_BROADCAST, 5000)),
+    retryFailedBroadcasts: bool(process.env.NOTIFICATION_RETRY_FAILED, true),
+  },
+
   maintenanceMode: bool(process.env.MAINTENANCE_MODE),
 
   deployment: {
@@ -80,9 +101,18 @@ export const config = {
 
 export function requireEnv(): void {
   const missing: string[] = [];
+  const warnings: string[] = [];
   if (!config.jwt.secret || config.jwt.secret === "change-me-in-production") missing.push("JWT_SECRET");
   if (!config.databaseUrl) missing.push("DATABASE_URL");
+  if (!config.redis.url || config.redis.url === "redis://localhost:6379") {
+    warnings.push("REDIS_URL (using localhost fallback — set it in production)");
+  }
+  if (!config.whatsapp.appSecret) warnings.push("WHATSAPP_APP_SECRET (webhook signature verification disabled)");
   if (missing.length) {
-    console.warn(`[config] Missing required env vars: ${missing.join(", ")}`);
+    console.error(`[config] Missing required env vars: ${missing.join(", ")}`);
+    process.exitCode = 1;
+  }
+  if (warnings.length) {
+    console.warn(`[config] Recommended env vars: ${warnings.join(", ")}`);
   }
 }

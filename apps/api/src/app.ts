@@ -11,16 +11,32 @@ import { adminRouter } from "./routes/admin";
 import { webhookRouter } from "./routes/webhook";
 import { monetizationRouter } from "./routes/monetization";
 import { notFoundHandler, errorHandler } from "./middleware/error";
+import { requestIdMiddleware } from "./middleware/request-id";
 import { prisma } from "./lib/prisma";
 import { logger } from "./lib/logger";
 
 export function createApp() {
   const app = express();
 
+  app.disable("x-powered-by");
+  app.set("trust proxy", 1);
+  app.use(requestIdMiddleware);
   app.use(helmet({ contentSecurityPolicy: false }));
-  app.use(cors({ origin: true, credentials: true }));
+  app.use(
+    cors({
+      origin: config.corsOrigins.length ? config.corsOrigins : true,
+      credentials: true,
+    })
+  );
   app.use(compression());
-  app.use(express.json({ limit: "2mb" }));
+  app.use(
+    express.json({
+      limit: "2mb",
+      verify: (req, _res, buf) => {
+        (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
+      },
+    })
+  );
   app.use(express.urlencoded({ extended: true }));
   if (!config.isProd) app.use(morgan("dev"));
 

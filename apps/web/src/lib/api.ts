@@ -59,6 +59,15 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   }
 
   if (!res.ok) {
+    // A stale or revoked admin token must never leave the user stuck on a
+    // broken admin screen — clear the local session and send them to log in
+    // again. Public /app pages never return 401.
+    if (res.status === 401 && typeof window !== "undefined" && getToken()) {
+      clearToken();
+      if (!window.location.pathname.startsWith("/admin/login")) {
+        window.location.assign("/admin/login");
+      }
+    }
     const message = payload?.error?.message ?? `Request failed with status ${res.status}`;
     throw new ApiError(message, res.status, payload?.error?.details);
   }

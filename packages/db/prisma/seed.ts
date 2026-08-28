@@ -63,6 +63,14 @@ const DEFAULT_SETTINGS: SettingInput[] = [
   { key: "analytics.snapshotEnabled", value: "true", type: "boolean", group: "analytics", description: "Store daily platform snapshots to power long-range trend charts", public: false },
   { key: "analytics.snapshotRetentionDays", value: "365", type: "number", group: "analytics", description: "How many days of snapshots to keep", public: false },
 
+  // ===== Advanced analytics =====
+  { key: "analytics.enabled", value: "true", type: "boolean", group: "analytics", description: "Enable the advanced admin analytics endpoints", public: false },
+  { key: "analytics.retentionDays", value: "365", type: "number", group: "analytics", description: "Maximum age of source data surfaced by analytics (soft limit)", public: false },
+
+  // ===== Revenue estimation =====
+  { key: "revenue.estimationEnabled", value: "true", type: "boolean", group: "revenue", description: "Compute ESTIMATED revenue from provider rates + real activity", public: false },
+  { key: "revenue.estimationMode", value: "provider_rates", type: "string", group: "revenue", description: "provider_rates (per-provider rates) or flat (revenue per verification setting only)", public: false },
+
   // ===== Uploads =====
   { key: "uploads.maxSizeMB", value: "5", type: "number", group: "uploads", description: "Max screenshot upload size in MB", public: true },
   { key: "uploads.allowedTypes", value: "image/png,image/jpeg,image/webp,image/gif", type: "string", group: "uploads", description: "Comma separated allowed MIME types", public: false },

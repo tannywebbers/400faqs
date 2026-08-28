@@ -17,12 +17,16 @@ import {
   Clock,
   XCircle,
   ArrowRight,
+  Activity,
+  BarChart3,
+  Wallet,
 } from "lucide-react";
 import { apiFetch, getToken } from "@/lib/api";
 import { StatCard } from "@/components/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { timeAgo } from "@/lib/utils";
 
 type DashboardStats = {
@@ -49,6 +53,16 @@ type DashboardStats = {
   recentActivity: { id: string; type: string; title: string; createdAt: string }[];
 };
 
+type RevenueSnapshot = {
+  totals: { estimated: number; confirmed: number; total: number; paid: number };
+};
+
+type OpsData = {
+  queues: Record<string, { waiting: number; active: number; completed: number; failed: number; delayed: number; paused: number }>;
+  moderationQueue: { pendingNotifications: number; failedNotifications: number; stuckNotifications: number };
+  recentEvents: { id: string; component: string; status: string; message: string; createdAt: string }[];
+};
+
 const TYPE_ICONS: Record<string, typeof Sparkles> = {
   contribution: Sparkles,
   report: ShieldAlert,
@@ -69,6 +83,18 @@ export default function AdminDashboardPage() {
     queryKey: ["admin-notifications-unread"],
     queryFn: () => apiFetch("/api/admin/notifications/unread-count", { token }),
     refetchInterval: 60_000,
+  });
+
+  const ops = useQuery<OpsData>({
+    queryKey: ["admin-dashboard-ops"],
+    queryFn: () => apiFetch("/api/admin/dashboard/ops", { token }),
+    refetchInterval: 60_000,
+  });
+
+  const revenue = useQuery<RevenueSnapshot>({
+    queryKey: ["admin-dashboard-revenue"],
+    queryFn: () => apiFetch("/api/admin/analytics/revenue", { token }),
+    refetchInterval: 300_000,
   });
 
   const t = query.data?.totals;
@@ -104,6 +130,11 @@ export default function AdminDashboardPage() {
           <span className={unread.data && unread.data.count > 0 ? "font-semibold text-brand" : ""}>
             {unread.data && unread.data.count > 0 ? `${unread.data.count} unread` : "No unread notifications"}
           </span>
+          <Link href="/admin/analytics">
+            <Button variant="outline" size="sm">
+              <BarChart3 className="mr-2 h-4 w-4" /> View Analytics
+            </Button>
+          </Link>
         </div>
       </div>
 
@@ -123,6 +154,34 @@ export default function AdminDashboardPage() {
               <p className="text-xl font-bold">{query.data?.today?.[key] ?? 0}</p>
             </CardContent>
           </Card>
+        ))}
+      </div>
+
+      {/* Revenue quick stats (trailing 30d) */}
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          { label: "Est. revenue (30d)", value: revenue.data?.totals.estimated ?? null, href: "/admin/analytics" },
+          { label: "Confirmed revenue (30d)", value: revenue.data?.totals.confirmed ?? null, href: "/admin/analytics" },
+          { label: "Revenue total", value: revenue.data?.totals.total ?? null, href: "/admin/analytics" },
+          { label: "Paid", value: revenue.data?.totals.paid ?? null, href: "/admin/analytics" },
+        ].map((s) => (
+          <Link key={s.label} href={s.href}>
+            <Card className="transition-colors hover:border-brand/30">
+              <CardContent className="flex items-center justify-between p-4">
+                <div className="flex items-center gap-2">
+                  <Wallet className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">{s.label}</p>
+                </div>
+                {revenue.isLoading ? (
+                  <Skeleton className="h-6 w-16" />
+                ) : s.value !== null ? (
+                  <p className="text-xl font-bold">${s.value.toLocaleString(undefined, { maximumFractionDigits: s.value < 100 ? 2 : 0 })}</p>
+                ) : (
+                  <p className="text-xl font-bold text-muted-foreground">—</p>
+                )}
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </div>
 
@@ -174,6 +233,64 @@ export default function AdminDashboardPage() {
                   </div>
                 );
               })
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-4 w-4" /> Background queues
+            </CardTitle>
+            {ops.isLoading && <Skeleton className="h-5 w-20" />}
+          </CardHeader>
+          <CardContent>
+            {!ops.isLoading && (
+              <div className="space-y-2">
+                {Object.entries(ops.data?.queues ?? {}).map(([name, q]) => (
+                  <div key={name} className="flex items-center justify-between rounded-xl border border-line px-4 py-2.5">
+                    <div>
+                      <p className="text-sm font-semibold capitalize">{name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {q.waiting} waiting · {q.active} active · {q.delayed} delayed
+                      </p>
+                    </div>
+                    {q.failed > 0 ? <Badge variant="red">{q.failed} failed</Badge> : <Badge variant="green">ok</Badge>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent system events</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {ops.isLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full rounded-xl" />
+                ))}
+              </div>
+            ) : (ops.data?.recentEvents?.length ?? 0) === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">No system events.</p>
+            ) : (
+              <div className="space-y-2">
+                {ops.data?.recentEvents.slice(0, 6).map((e) => (
+                  <div key={e.id} className="flex items-start gap-3 rounded-xl border border-line p-3">
+                    <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${e.status === "ok" ? "bg-emerald-500" : "bg-red-500"}`} aria-hidden />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{e.message}</p>
+                      <p className="text-xs text-muted-foreground">{e.component}</p>
+                    </div>
+                    <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(e.createdAt)}</span>
+                  </div>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>

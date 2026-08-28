@@ -9,10 +9,20 @@ import { logger } from "./logger";
 
 fs.mkdirSync(config.uploads.dir, { recursive: true });
 
+const MIME_EXT: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+};
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, config.uploads.dir),
   filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
+    // Extension is derived from the validated MIME type (never from the
+    // client-supplied original filename) so stored files can only ever be
+    // served with an image content type.
+    const ext = MIME_EXT[file.mimetype] ?? ".jpg";
     cb(null, `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`);
   },
 });

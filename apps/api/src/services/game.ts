@@ -182,7 +182,7 @@ export async function handleWhatsAppMessage(payload: WaInbound): Promise<void> {
     await processMessage(payload);
   } catch (err) {
     logger.error("[game] message processing failed", (err as Error).message);
-    await sendText(payload.phone, messages.genericError()).catch(() => undefined);
+    await sendText(payload.phone, messages.systemBusy()).catch(() => undefined);
   }
 }
 

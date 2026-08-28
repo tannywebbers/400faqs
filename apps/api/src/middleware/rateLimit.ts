@@ -40,3 +40,11 @@ export const codeLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, error: { message: "Too many code requests, try again later." } },
 });
+
+export const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { success: false, error: { message: "Too many requests" } },
+});

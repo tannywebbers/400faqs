@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { FolderOpen, HelpCircle, Home, MessageCirclePlus, Menu, ShieldQuestion, Trophy, X, Flag, FolderPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { NotificationBell } from "./notification-bell";
 
 const LINKS = [
   { href: "/app", label: "Dashboard", icon: Home },
@@ -50,14 +51,17 @@ export function AppHeader() {
           ))}
         </nav>
 
-        <button
-          type="button"
-          aria-label="Toggle navigation"
-          onClick={() => setOpen((v) => !v)}
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-surface md:hidden"
-        >
-          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
+        <div className="flex items-center gap-1">
+          <NotificationBell />
+          <button
+            type="button"
+            aria-label="Toggle navigation"
+            onClick={() => setOpen((v) => !v)}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-surface md:hidden"
+          >
+            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
 
       {open && (

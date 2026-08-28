@@ -1,11 +1,13 @@
-import { Router } from "express";
-import { verifyWebhook } from "../lib/whatsapp";
+import { Router, type Request } from "express";
+import { verifyWebhook, verifyWebhookSignature, isRetryableWebhookError } from "../lib/whatsapp";
 import { handleWhatsAppMessage } from "../services/game";
 import { logMessage } from "../services/messaging";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { notifyAdmins } from "../services/notifications";
+import { reportError } from "../lib/error-report";
 import { emitAdminEvent } from "../sockets";
+import { webhookLimiter } from "../middleware/rateLimit";
 
 export const webhookRouter = Router();
 
@@ -50,7 +52,8 @@ async function clearProcessed(eventId: string): Promise<void> {
 }
 
 // Campaign delivery tracking: reflect tombstone statuses from the webhook
-// onto CampaignDelivery rows and the parent campaign counters.
+// onto CampaignDelivery rows and the parent campaign counters. Each stage is
+// isolated so a single stale delivery row can never break a status batch.
 async function syncDeliveryFromStatus(deliveryId: string, status: string): Promise<void> {
   const patch: Record<string, unknown> = { status };
   const now = new Date();
@@ -59,7 +62,9 @@ async function syncDeliveryFromStatus(deliveryId: string, status: string): Promi
 
   await prisma.campaignDelivery.update({ where: { id: deliveryId }, data: patch }).catch(() => undefined);
 
-  const campaignId = (await prisma.campaignDelivery.findUnique({ where: { id: deliveryId }, select: { campaignId: true } }))?.campaignId;
+  const campaignId = (
+    await prisma.campaignDelivery.findUnique({ where: { id: deliveryId }, select: { campaignId: true } }).catch(() => undefined)
+  )?.campaignId;
   if (!campaignId) return;
 
   const num: Record<string, number> = {};
@@ -67,6 +72,25 @@ async function syncDeliveryFromStatus(deliveryId: string, status: string): Promi
   else if (status === "read") num.readCount = 1;
   if (Object.keys(num).length > 0) {
     await prisma.campaign.update({ where: { id: campaignId }, data: num }).catch(() => undefined);
+  }
+}
+
+async function handleDeliveryStatus(status: { id?: string; status?: string }): Promise<void> {
+  if (!status.id || !status.status) return;
+
+  const updated = await prisma.messageLog
+    .updateMany({ where: { waMessageId: status.id }, data: { status: status.status } })
+    .catch(() => undefined);
+
+  emitAdminEvent("whatsapp:status", { id: status.id, status: status.status });
+
+  if (updated && updated.count > 0) {
+    const log = await prisma.messageLog
+      .findFirst({ where: { waMessageId: status.id }, select: { campaignDeliveryId: true } })
+      .catch(() => undefined);
+    if (log?.campaignDeliveryId) {
+      await syncDeliveryFromStatus(log.campaignDeliveryId, status.status);
+    }
   }
 }
 
@@ -80,8 +104,15 @@ webhookRouter.get("/whatsapp", (req, res) => {
   }
 });
 
-// Incoming messages (POST)
-webhookRouter.post("/whatsapp", async (req, res) => {
+// Incoming messages (POST) — rate limited but generous so Meta retries pass.
+webhookRouter.post("/whatsapp", webhookLimiter, async (req, res) => {
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+
+  if (!verifyWebhookSignature(rawBody, req.headers["x-hub-signature-256"] as string | undefined)) {
+    res.status(401).json({ success: false, error: { message: "Invalid signature" } });
+    return;
+  }
+
   res.status(200).json({ received: true });
 
   const body = req.body as { entry?: WaEntry[] };
@@ -93,21 +124,12 @@ webhookRouter.post("/whatsapp", async (req, res) => {
         if (!value) continue;
 
         if (value.statuses) {
-          logger.debug("[whatsapp] delivery status", value.statuses.map((s) => ({ id: s.id, status: s.status })));
+          // Per-status isolation: never let one bad status abort the batch.
           for (const status of value.statuses) {
-            if (status.id && status.status) {
-              const updated = await prisma.messageLog
-                .updateMany({ where: { waMessageId: status.id }, data: { status: status.status } })
-                .catch(() => undefined);
-              if (updated && updated.count > 0) {
-                const log = await prisma.messageLog.findFirst({
-                  where: { waMessageId: status.id },
-                  select: { campaignDeliveryId: true },
-                });
-                if (log?.campaignDeliveryId) {
-                  await syncDeliveryFromStatus(log.campaignDeliveryId, status.status);
-                }
-              }
+            try {
+              await handleDeliveryStatus(status);
+            } catch (err) {
+              logger.warn("[whatsapp] status update failed", (err as Error).message);
             }
           }
         }
@@ -156,22 +178,27 @@ webhookRouter.post("/whatsapp", async (req, res) => {
             await handleWhatsAppMessage({ phone: from, name: contactName, text, buttonId, listId, timestamp: message.timestamp });
             emitAdminEvent("whatsapp:message", { from, text: (text ?? buttonId ?? listId ?? "").slice(0, 100) });
           } catch (err) {
-            // Allow WhatsApp retries to reprocess this message.
-            await clearProcessed(id);
-            throw err;
+            // Only ask WhatsApp to re-deliver when the failure is transient
+            // (DB/network). Permanent per-message errors must not requeue forever.
+            if (isRetryableWebhookError(err)) {
+              await clearProcessed(id);
+              throw err;
+            }
+            logger.error("[whatsapp] message processing failed (permanent)", { id, error: (err as Error).message });
           }
         }
       }
     }
   } catch (err) {
     logger.error("[whatsapp] webhook processing failed", (err as Error).message);
-    await prisma.systemEvent.create({
-      data: { component: "whatsapp", status: "degraded", message: "Webhook processing error" },
-    }).catch(() => undefined);
-    await notifyAdmins({
-      type: "SYSTEM",
+    await prisma.systemEvent
+      .create({ data: { component: "whatsapp", status: "degraded", message: "Webhook processing error" } })
+      .catch(() => undefined);
+    void notifyAdmins({
+      type: "SYSTEM_ALERT",
       title: "WhatsApp webhook error",
       message: (err as Error).message.slice(0, 200),
     }).catch(() => undefined);
+    reportError({ component: "whatsapp:webhook", err, severity: "error", alertAdmins: false });
   }
 });

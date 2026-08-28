@@ -24,12 +24,16 @@ import { monetizationAdminRouter } from "./monetization";
 import { analyticsRouter } from "./analytics";
 import { campaignsRouter } from "./campaigns";
 import { revenueRouter } from "./revenue";
+import { healthRouter } from "./health";
+import { jobsRouter } from "./jobs";
 
 export const adminRouter = Router();
 
 adminRouter.use("/auth", authRouter);
 adminRouter.use(requireAuth);
 
+adminRouter.use("/health", healthRouter);
+adminRouter.use("/jobs", jobsRouter);
 adminRouter.use("/dashboard", dashboardRouter);
 adminRouter.use("/categories", categoriesRouter);
 adminRouter.use("/questions", questionsRouter);

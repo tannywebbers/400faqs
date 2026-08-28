@@ -339,8 +339,10 @@ export async function checkQuestionSimilarity(
         };
       });
 
-    // Decision matrix (see PHASE9RESULT.TXT)
-    if (parsed.classification === "EXACT_DUPLICATE" && parsed.confidence >= 0.85) {
+    // Decision matrix (see PHASE9RESULT.TXT): EXACT_DUPLICATE uses the
+    // configured exact threshold (contribution.aiThreshold), never a hardcoded
+    // value, so admins can tune rejection strictness.
+    if (parsed.classification === "EXACT_DUPLICATE" && parsed.score >= cfg.exactThreshold && parsed.confidence >= cfg.exactThreshold) {
       return {
         aiAvailable: true,
         classification: "EXACT_DUPLICATE",

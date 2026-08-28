@@ -340,6 +340,14 @@ async function sendDelivery(
   campaign: { id: string; messageType: string; messageBody: string | null; templateId: string | null; template: { body: string } | null },
   delivery: { id: string; phone: string; userId: string | null; attempt: number }
 ): Promise<void> {
+  // Idempotency claim: only the caller that flips "queued" -> "sending" may
+  // send. Two concurrent dispatch batches can therefore never double-send.
+  const claimed = await prisma.campaignDelivery.updateMany({
+    where: { id: delivery.id, status: "queued" },
+    data: { status: "sending" },
+  });
+  if (claimed.count !== 1) return;
+
   const attempt = delivery.attempt + 1;
   let body = campaign.messageBody?.trim() || campaign.template?.body?.trim() || "";
   if (!body) {
@@ -397,7 +405,7 @@ export async function processCampaignBatch(campaignId: string): Promise<number> 
   });
 
   if (batch.length === 0) {
-    const remaining = await prisma.campaignDelivery.count({ where: { campaignId, status: { in: ["queued", "scheduled"] } } });
+    const remaining = await prisma.campaignDelivery.count({ where: { campaignId, status: { in: ["queued", "scheduled", "sending"] } } });
     if (remaining === 0) await completeCampaign(campaignId);
     return 0;
   }
@@ -410,7 +418,7 @@ export async function processCampaignBatch(campaignId: string): Promise<number> 
 
   await prisma.campaign.update({ where: { id: campaignId }, data: { lastRunAt: new Date() } });
 
-  const open = await prisma.campaignDelivery.count({ where: { campaignId, status: { in: ["queued", "scheduled"] } } });
+  const open = await prisma.campaignDelivery.count({ where: { campaignId, status: { in: ["queued", "scheduled", "sending"] } } });
   if (open > 0) {
     await enqueue("campaign", "dispatch", { campaignId }, { delay: 60_000, attempts: 1 });
   } else {

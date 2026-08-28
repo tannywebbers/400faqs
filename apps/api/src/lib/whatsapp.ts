@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { config } from "../config";
 import { logger } from "./logger";
 
@@ -120,4 +121,34 @@ export function waPhoneNumberId(): string {
 
 export function whatsappConfigured(): boolean {
   return waEnabled();
+}
+
+/**
+ * Verifies the X-Hub-Signature-256 header sent by Meta against the raw
+ * request body using WHATSAPP_APP_SECRET. When the secret is not configured
+ * the check is skipped (verified at boot by requireEnv warnings).
+ */
+export function verifyWebhookSignature(rawBody: Buffer | undefined, signatureHeader: string | undefined): boolean {
+  if (!config.whatsapp.appSecret) return true;
+  const provided = signatureHeader ?? "";
+  const prefix = "sha256=";
+  if (!provided.startsWith(prefix)) return false;
+
+  const expected = createHmac("sha256", config.whatsapp.appSecret)
+    .update(rawBody ?? Buffer.alloc(0))
+    .digest("hex");
+  const a = Buffer.from(provided.slice(prefix.length));
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+/** Transient failures that warrant asking WhatsApp to retry the delivery. */
+export function isRetryableWebhookError(err: unknown): boolean {
+  const e = err as { code?: string; name?: string };
+  if (typeof e.code === "string" && /^P/.test(e.code)) return true;
+  const name = e.name ?? "";
+  if (name === "AbortError" || name === "TimeoutError") return true;
+  const message = (err as Error)?.message ?? "";
+  return /fetch|connect|timeout|ECONN|socket/i.test(message);
 }

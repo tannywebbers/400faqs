@@ -107,6 +107,20 @@ enum NotificationType {
   CONTRIBUTION
   AD
   SYSTEM
+  SYSTEM_ALERT
+  ADMIN_ALERT
+  BROADCAST
+  SESSION_INVITE
+  SESSION_JOINED
+  SESSION_EXPIRED
+  SESSION_TIMEOUT
+  SESSION_ENDED
+  OPPONENT_LEFT
+  GAME_ENDED
+  VERIFICATION_REQUIRED
+  VERIFICATION_COMPLETED
+  CONTRIBUTION_REVIEW
+  CAMPAIGN_COMPLETED
 }
 
 // ============================================================
@@ -132,6 +146,7 @@ model Admin {
   reviewedCategoryRequests CategoryRequest[]
   createdCategories   Category[]
   campaigns     Campaign[]
+  revenueLedgerCreated RevenueLedger[] @relation("RevenueLedgerCreator")
 }
 
 // ============================================================
@@ -281,6 +296,7 @@ model Session {
   @@index([creatorId, status])
   @@index([joinerId, status])
   @@index([state])
+  @@index([lastActivityAt])
 }
 
 model GameMove {
@@ -469,15 +485,22 @@ model Notification {
   admin     Admin?           @relation(fields: [adminId], references: [id], onDelete: Cascade)
   userId    String?
   user      User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phone     String?
   type      NotificationType @default(SYSTEM)
+  channel   String           @default("WEB")
+  status    String           @default("PENDING")
   title     String
   message   String
   link      String?
+  metadata  Json?
   readAt    DateTime?
   createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
   @@index([adminId, readAt])
   @@index([userId, readAt])
+  @@index([userId, readAt, createdAt])
+  @@index([channel, status, createdAt])
 }
 
 model AuditLog {
@@ -535,6 +558,26 @@ model ProcessedEvent {
   @@index([processedAt])
 }
 
+model JobLog {
+  id         String   @id @default(cuid())
+  queue      String
+  jobName    String
+  jobId      String?
+  status     String
+  data       Json?
+  error      String?
+  attempts   Int      @default(0)
+  durationMs Int?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([queue, status, createdAt])
+  @@index([status, createdAt])
+  @@index([jobId])
+  @@index([createdAt])
+}
+
 // ============================================================
 // MONETIZATION (AD PROVIDERS, SNIPPETS, GATES, EVENTS)
 // ============================================================
@@ -547,17 +590,47 @@ enum GateStatus {
   CANCELLED
 }
 
+// What type of activity produced a revenue record.
+enum RevenueEventType {
+  VERIFICATION
+  CLICK
+  IMPRESSION
+  PAYOUT
+  ADJUSTMENT
+  OTHER
+}
+
+// How a provider is paid (drives estimated revenue).
+enum ProviderRevenueModel {
+  CPM
+  CPC
+  CPA
+  FIXED
+}
+
 model AdProvider {
-  id            String  @id @default(cuid())
+  id            String                @id @default(cuid())
   name          String
-  type          String  @default("CUSTOM")
+  type          String                @default("CUSTOM")
   description   String?
-  enabled       Boolean @default(true)
-  archived      Boolean @default(false)
-  priority      Int     @default(100)
+  enabled       Boolean               @default(true)
+  archived      Boolean               @default(false)
+  priority      Int                   @default(100)
   configuration Json?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  // Optional revenue configuration. All monetary values below are ESTIMATED
+  // (rates entered by admins); confirmed figures only ever come from
+  // confirmed RevenueLedger rows — never fabricated.
+  revenueModel  ProviderRevenueModel  @default(CPA)
+  currency      String                @default("USD")
+  cpmRate       Float                 @default(0)
+  cpcRate       Float                 @default(0)
+  cpaRate       Float                 @default(0)
+  fixedPayoutPerVerification Float     @default(0)
+  estimatedPayoutPerVerification Float @default(0)
+  estimatedPayoutPerClick     Float   @default(0)
+  estimatedPayoutPerImpression Float  @default(0)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
 
   snippets AdSnippet[]
   gates    MonetizationGate[]
@@ -611,6 +684,7 @@ model MonetizationGate {
   @@index([sessionId, status])
   @@index([userId, status])
   @@index([status, createdAt])
+  @@index([expiresAt])
 }
 
 model MonetizationEvent {
@@ -684,6 +758,7 @@ model MessageLog {
   @@index([status])
   @@index([templateId])
   @@index([campaignDeliveryId])
+  @@index([waMessageId])
 }
 
 // ============================================================
@@ -756,27 +831,41 @@ model CampaignDelivery {
 // ============================================================
 
 model RevenueLedger {
-  id                String           @id @default(cuid())
-  type              String           @default("AUTO")
+  id                String            @id @default(cuid())
+  type              String            @default("AUTO")
+  // Activity that produced this row: VERIFICATION | CLICK | IMPRESSION |
+  // PAYOUT | ADJUSTMENT | OTHER.
+  eventType         RevenueEventType  @default(VERIFICATION)
   providerId        String?
-  provider          AdProvider?      @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  provider          AdProvider?       @relation(fields: [providerId], references: [id], onDelete: SetNull)
   sessionId         String?
-  session           Session?         @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  session           Session?          @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   userId            String?
-  user              User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user              User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
   gateId            String?
   gate              MonetizationGate? @relation(fields: [gateId], references: [id], onDelete: SetNull)
-  currency          String           @default("USD")
-  revenueAmount     Float            @default(0)
-  payoutAmount      Float            @default(0)
-  revenueShare      Float            @default(0)
-  status            String           @default("pending")
+  currency          String            @default("USD")
+  revenueAmount     Float             @default(0)
+  payoutAmount      Float             @default(0)
+  revenueShare      Float             @default(0)
+  status            String            @default("pending")
+  // Estimate vs confirmed: AUTO rows and admin-entered ESTIMATED records are
+  // estimates until an admin (or provider feed) confirms them.
+  isEstimated       Boolean           @default(true)
   providerReference String?
   notes             String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  metadata          Json?
+  createdById       String?
+  createdBy         Admin?            @relation("RevenueLedgerCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  recordedAt        DateTime          @default(now())
+  confirmedAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   @@index([status, createdAt])
+  @@index([type, createdAt])
+  @@index([eventType, createdAt])
+  @@index([isEstimated, createdAt])
   @@index([providerId, createdAt])
   @@index([sessionId])
   @@index([userId])

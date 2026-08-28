@@ -23,5 +23,8 @@ uploadsRouter.post("/", upload.single("file"), async (req, res) => {
   const url = uploadedUrl(req, req.file.filename);
   const admin = (req as unknown as AdminRequest).admin;
   await saveUploadRecord(url, req.file.mimetype, req.file.size, admin.id);
+  await prisma.auditLog.create({
+    data: { adminId: admin.id, action: "UPLOAD", targetType: "upload", targetId: req.file.filename, details: { url, mime: req.file.mimetype } },
+  });
   res.json(ok({ url, filename: req.file.filename, size: req.file.size }));
 });

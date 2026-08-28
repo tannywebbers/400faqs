@@ -11,6 +11,21 @@ import {
   parseDateRange,
   buildDaySeries,
 } from "../../services/analytics";
+import {
+  getAnalyticsOverview,
+  getUserAnalytics,
+  getSessionAnalytics,
+  getContributionAnalytics,
+  getAIAnalytics,
+  getWhatsAppAdvanced,
+  getMonetizationAnalytics,
+  getRevenueAnalytics,
+  getTimeseries,
+  getTopAnalytics,
+  renderAnalyticsCsv,
+  getQuestionAnalytics,
+  getCategoryRankings,
+} from "../../services/analytics-advanced";
 import { getSnapshotSeries, getLatestSnapshot, captureAnalyticsSnapshot } from "../../services/snapshot";
 import { prisma } from "../../lib/prisma";
 
@@ -29,10 +44,15 @@ function csvEscape(v: unknown): string {
   return s;
 }
 
+function queryRange(req: unknown): { from?: string; to?: string } {
+  const q = (req as { validated?: { query?: { from?: string; to?: string } } }).validated?.query ?? {};
+  return { from: q.from, to: q.to };
+}
+
 // ── Platform analytics (date range) ─────────────────────────
 
 analyticsRouter.get("/", validate(dateQuerySchema), async (req, res) => {
-  const { from, to } = (req as unknown as { validated: { query: { from?: string; to?: string } } }).validated.query;
+  const { from, to } = queryRange(req);
   const data = await getAdminAnalytics(from, to);
   res.json(ok(data));
 });
@@ -86,25 +106,115 @@ analyticsRouter.post("/snapshots/capture", async (_req, res) => {
   res.json(ok({ message: "Snapshot captured" }));
 });
 
+// ── Advanced BI endpoints (Phase 11) ─────────────────────────
+
+// Business intelligence overview: KPI cards with trend-vs-previous-period.
+analyticsRouter.get("/overview", validate(dateQuerySchema), async (req, res) => {
+  const { from, to } = queryRange(req);
+  const data = await getAnalyticsOverview(from, to);
+  res.json(ok(data));
+});
+
+// User analytics: totals, new/active/returning, per-day series, top players.
+analyticsRouter.get("/users", validate(dateQuerySchema), async (req, res) => {
+  const { from, to } = queryRange(req);
+  const data = await getUserAnalytics(from, to);
+  res.json(ok(data));
+});
+
+// Session analytics: creation/completion/abandonment, category & game-type breakdowns.
+analyticsRouter.get("/sessions", validate(dateQuerySchema), async (req, res) => {
+  const { from, to } = queryRange(req);
+  const data = await getSessionAnalytics(from, to);
+  res.json(ok(data));
+});
+
+// Contribution lifecycle + AI duplicate classification analytics.
+analyticsRouter.get("/contributions", validate(dateQuerySchema), async (req, res) => {
+  const { from, to } = queryRange(req);
+  const data = await getContributionAnalytics(from, to);
+  res.json(ok(data));
+});
+
+// Google-AI moderation analytics (cost data intentionally unavailable).
+analyticsRouter.get("/ai/advanced", validate(dateQuerySchema), async (req, res) => {
+  const { from, to } = queryRange(req);
+  const data = await getAIAnalytics(from, to);
+  res.json(ok(data));
+});
+
+// WhatsApp advanced analytics: directions, states, hourly distribution, templates.
+analyticsRouter.get("/whatsapp/advanced", validate(dateQuerySchema), async (req, res) => {
+  const { from, to } = queryRange(req);
+  const data = await getWhatsAppAdvanced(from, to);
+  res.json(ok(data));
+});
+
+// Monetization analytics: gates, providers, event map, 8-step funnel.
+analyticsRouter.get("/monetization", validate(dateQuerySchema), async (req, res) => {
+  const { from, to } = queryRange(req);
+  const data = await getMonetizationAnalytics(from, to);
+  res.json(ok(data));
+});
+
+// Revenue ledger analytics: estimated vs confirmed, by provider/category/event-type.
+analyticsRouter.get("/revenue", validate(dateQuerySchema), async (req, res) => {
+  const { from, to } = queryRange(req);
+  const data = await getRevenueAnalytics(from, to);
+  res.json(ok(data));
+});
+
+// Multi-metric daily timeseries.
+analyticsRouter.get("/timeseries", validate(dateQuerySchema), async (req, res) => {
+  const { from, to } = queryRange(req);
+  const data = await getTimeseries(from, to);
+  res.json(ok(data));
+});
+
+// Top lists: most-played questions, top categories, contributors, players, templates.
+analyticsRouter.get("/top", validate(dateQuerySchema), async (req, res) => {
+  const { from, to } = queryRange(req);
+  const data = await getTopAnalytics(from, to);
+  res.json(ok(data));
+});
+
+// Monetization funnel (gameplay -> gate -> link -> countdown -> code -> submit -> verified -> resume).
+analyticsRouter.get("/monetization/funnel", validate(dateQuerySchema), async (req, res) => {
+  const { from, to } = queryRange(req);
+  const data = await getMonetizationAnalytics(from, to);
+  res.json(ok({ range: data.range, funnel: data.funnel, totals: data.totals, series: data.series }));
+});
+
+// Question/content library deep-dive.
+analyticsRouter.get("/questions/advanced", async (_req, res) => {
+  const data = await getQuestionAnalytics();
+  res.json(ok(data));
+});
+
+// Category rankings with monetization + verification breakdown.
+analyticsRouter.get("/categories/rankings", async (_req, res) => {
+  const data = await getCategoryRankings();
+  res.json(ok(data));
+});
+
 // ── CSV export ───────────────────────────────────────────────
 
 analyticsRouter.get("/export", validate(dateQuerySchema), async (req, res) => {
-  const { from, to } = (req as unknown as { validated: { query: { from?: string; to?: string } } }).validated.query;
+  const { from, to } = queryRange(req);
+  const dataset = String(((req as unknown as { query: { dataset?: unknown } }).query.dataset) ?? "overview");
   const { start, end } = parseDateRange(from, to);
-  const data = await getAdminAnalytics(from, to);
+  const isLegacy = dataset === "overview";
 
-  const columns = ["date", "users", "questions", "sessions", "moves", "contributions", "reports", "categoryRequests", "messages", "revenueLedger", "campaigns"];
-  const header = columns.map(csvEscape).join(",");
+  const csv = isLegacy ? await (async () => {
+    const data = await getAdminAnalytics(from, to);
+    const columns = ["date", "users", "questions", "sessions", "moves", "contributions", "reports", "categoryRequests", "messages", "revenueLedger", "campaigns"];
+    const header = columns.map(csvEscape).join(",");
+    const seriesRows = data.series.map((p) => columns.map((c) => csvEscape((p as unknown as Record<string, unknown>)[c])).join(","));
+    const totalRow = columns.map((c) => csvEscape(c === "date" ? "TOTAL" : data.totals[c] ?? 0)).join(",");
+    return [header, ...seriesRows, totalRow].join("\n");
+  })() : await renderAnalyticsCsv(dataset, from, to);
 
-  const seriesRows = data.series.map((p) =>
-    columns.map((c) => csvEscape((p as unknown as Record<string, unknown>)[c])).join(",")
-  );
-  const totalRow = columns
-    .map((c) => csvEscape(c === "date" ? "TOTAL" : data.totals[c] ?? 0))
-    .join(",");
-
-  const csv = [header, ...seriesRows, totalRow].join("\n");
-  const filename = `analytics-${start.toISOString().slice(0, 10)}-${end.toISOString().slice(0, 10)}.csv`;
+  const filename = `analytics-${dataset}-${start.toISOString().slice(0, 10)}-${end.toISOString().slice(0, 10)}.csv`;
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

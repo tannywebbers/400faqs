@@ -1,0 +1,368 @@
+PHASE 11 RESULT
+===============
+
+PHASE NUMBER AND NAME
+---------------------
+Phase 11 — Production Readiness & Integration Hardening
+(Admin Ops Suite, Notifications Infrastructure, Background Jobs with Full Visibility and Recovery,
+Webhook Reliability, Cross-Cutting Consistency Audit and Hardening)
+
+IMPLEMENTATION SUMMARY
+----------------------
+Phase 11 was carried out on the completed 400QUES monorepo (packages/db, apps/api, apps/web).
+It delivered a production-ready operations foundation and then hardened every integration the
+product depends on:
+
+  - Full notifications infrastructure: centralized notifyAdmins() service, channels + status
+    lifecycle, broadcast to all players with per-recipient deduplication, a dedicated BullMQ
+    worker, and admin REST endpoints to send/broadcast and manage notifications.
+  - Agent/job observability and recovery: JobLog records job attempts/outcomes, locked node-cron
+    jobs prevent multi-instance double-runs, a recovery job surfaces/retries stuck jobs, and a
+    worker process entry point runs all background queues.
+  - Admin Ops Suite pages: Health, Jobs, and Notifications with real data served by the API.
+  - Webhook reliability: X-Hub-Signature-256 verification (when WHATSAPP_APP_SECRET is set),
+    per-chat/per-message deduplication via ProcessedEvent, per-status isolation so handlers do
+    not leak, retryable-error classification, and a higher webhook rate limit.
+  - Campaign send hardening: claim-then-send deduplication prevents double messages on retries.
+  - A full cross-cutting production-readiness audit of every API route, service, library, schema
+    model, and frontend page was performed and the discovered gaps were fixed (see below).
+  - A strict BUILD-ONLY approach was followed: no tests, no servers, no WhatsApp/Google-AI/game/
+    campaign/live-DB/webhook runtime verification. Only TypeScript typechecks were run.
+
+EXISTING FEATURES DISCOVERED
+----------------------------
+  - Monorepo: packages/db (Prisma 5.22.0, seed), apps/api (Express 4, Zod, BullMQ, node-cron,
+    socket.io, multer+sharp), apps/web (Next.js 14 App Router, Tailwind, Radix, TanStack Query).
+  - WhatsApp-first product: phone number is the identity; all public actions (game, contributions,
+    reports, category requests, notifications) are phone-scoped.
+  - Question pipeline: DB candidate search BEFORE Google AI; deterministic exact-duplicate check;
+    AI classification EXACT_DUPLICATE | VERY_SIMILAR | UNIQUE; VERY_SIMILAR routes to manual
+    review; UNIQUE can auto-approve when contribution.autoApprove is enabled.
+  - Monetization = verification/ad links only (no payments, no premium features, no subscriptions);
+    revenue ledger records per-verification revenue; public tokens satisfy links, never DB IDs by
+    default.
+  - Mongoose-free raw Prisma client usage in the API and worker packages, generated client in
+    packages/db. Design system: liquid-glass, white/green + blue/orange accents.
+  - Existing admin (CRUD over ~26 entities), public API (/api/public/*), webhook endpoint,
+    monetization endpoints, analytics, campaigns, and the full WhatsApp game engine.
+
+FEATURES ADDED
+--------------
+  1. Notifications service (apps/api/src/services/notifications.ts): create/read/broadcast, phone
+     + channel scoping (SYSTEM / WHATSAPP / WEB), status lifecycle (PENDING -> SENT/FAILED,
+     completed backfill for failing delivered messages is retryable), metadata JSON, updatedAt on
+     every state change.
+  2. Notification delivery worker (apps/api/src/workers/notification.worker.ts): processes WEB and
+     WHATSAPP notifications from the queue; WEB rows are written straight to SENT and broadcast to
+     admins over socket.io; WHATSAPP rows are sent through the WhatsApp service with retries.
+  3. Broadcast engine: admin can broadcast to all players; per-recipient rows created with status
+     SENT for WEB users and enqueued jobs for WHATSAPP users; deduplicated and capped by
+     config.notifications.maxBroadcastRecipients; admin notified of broadcast outcome.
+  4. JobLog model + lib/joblog.ts: every enqueued job gets an entry; attempt increments, an
+     "attempts" array (startedAt, finishedAt, error, outcome), completion status, retry recording;
+     background hooks attached to the shared queue factory.
+  5. Queue hardening (apps/api/src/lib/queue.ts): configurable attempts, delayed backoff, worker
+     concurrency, per-job global concurrency lock files, queue health check, explicit job retry
+     and dead-letter copy helpers.
+  6. Locked cron jobs (apps/api/src/index.ts): every recurring background job acquires a Redis lock
+     so only one instance runs it.
+  7. Recovery job (apps/api/src/services/recovery.ts): marks jobs stuck in "processing" as failed,
+     retries failed-but-eligible jobs, prunes JobLog past retention, and reports to admins.
+  8. Admin Ops API: GET /api/admin/health (live system status), GET+POST /api/admin/jobs
+     (list/retry/cancel/discard), POST /api/admin/notifications/send and /broadcast, plus
+     GET /api/admin/notifications (admin's own notification center).
+  9. Public notifications API: GET /api/public/notifications (phone-scoped), plus unread/batch
+     read-state helpers — powers the in-app bell.
+  10. Notification center UI: /app/notifications page + bell with unread badge in /app header.
+  11. Admin Ops pages: /admin/health, /admin/jobs, /admin/notifications with live data, and admin
+      nav links added (no dead links).
+  12. Bot reliability messages: players receive friendly WhatsApp messages on game/system errors
+      instead of silent failures.
+  13. Category-request decision notifications: requester is told when their request is approved or
+      rejected (which requested the change; informed via notification).
+  14. Webhook hardening: shared signature verifier (X-Hub-Signature-256) in lib/whatsapp.ts,
+      request-id propagation, per-status isolation handler, retryable vs non-retryable error
+      classification, 300/min rate limit for /api/webhooks.
+  15. Context, error-report, request-id libraries: AsyncLocalStorage request context, throttled
+      admin alerting (SystemEvent + notifyAdmins) with component-level keying.
+  16. Root .env.example with documented placeholders for every environment variable the code reads.
+  17. packages/db build now runs prisma generate before tsc so a fresh build resolves the client.
+
+FEATURES UPDATED
+----------------
+  - lib/config.ts: env-driven uploads.dir (UPLOADS_DIR) and CORS_ORIGINS allow-list (empty =>
+    accept-any fallback); all queue/notification/rate-limit values env-configurable.
+  - app.ts: CORS now honors config.corsOrigins when set; health endpoint, maintenance gate,
+    request-id middleware retained.
+  - routes/public.ts: generic POST /uploads now requires a valid phone and records it as the
+    uploader; detail GETs (/contributions/:ticket, /reports/:ticket, /category-requests/:id)
+    accept an optional phone param that enforces ownership and no longer leak internal owner
+    fields; POST /ads/:id/click returns 404 for unknown ads instead of 500.
+  - lib/upload.ts: stored filenames now derive their extension from the validated MIME type via a
+    fixed allow-list (png/jpg/webp/gif) instead of mirroring the client-supplied original
+    filename, eliminating extension-confusion.
+  - Admin uploads endpoint: actions are now written to the audit log.
+  - packages/db/package.json: build = "prisma generate && tsc".
+  - Web hook lib (apps/web/src/lib/api.ts): global 401 handling — a stale/revoked admin token is
+    cleared and the user is redirected to /admin/login instead of being stuck on a broken page.
+
+BUGS / FUNCTIONALITY FIXED
+--------------------------
+  1. AI EXACT_DUPLICATE decision used a hardcoded confidence floor (0.85) while the admin-tunable
+     contribution.aiThreshold existed; it now uses the configured exact threshold like every other
+     AI decision branch.
+  2. Multer produced upload filenames whose extensions mirrored the client filename, allowing
+     stored files to present as non-image content; extensions are now derived exclusively from a
+     validated MIME-type allow-list.
+  3. Unauthenticated generic POST /uploads accepted files from anyone with no ownership scope; it
+     now requires a valid phone number which is recorded as the uploader.
+  4. Public detail lookups for contributions/reports/category-requests exposed owner phone fields
+     and returned data regardless of caller; they now support ownership verification and strip
+     internal owner fields.
+  5. POST /api/public/ads/:id/click returned 500 for a missing ad; now returns 404.
+  6. No-op Next.js middleware.ts silently claimed to guard /admin routes while doing nothing; it
+     was removed.
+  7. No root .env.example existed; created with every referenced variable documented.
+  8. packages/db build did not generate the Prisma client before compiling, so a cold build of
+     apps/api could fail; fixed.
+  9. Mutation audit coverage gap (admin uploads now audited).
+
+DATABASE / SCHEMA CHANGES
+-------------------------
+  Schema file: packages/db/prisma/schema.prisma (model + index additions below). A migration must
+  be generated and applied by the next phase (DATABASE_URL was not available during this phase —
+  `prisma migrate dev --name phase11` then `prisma db push` in non-dev environments):
+    - Notification model: id, phone, channel (enum), type, title, message, link, status enum,
+      readAt, metadata (Json), createdAt, updatedAt; indexes on (phone,status), (channel,status),
+      (createdAt).
+    - JobLog model: id, queue, name, jobId unique, status enum, attempts, maxAttempts, data Json,
+      result Json?, error, attempts Json?, scheduledFor, startedAt, finishedAt, createdAt,
+      updatedAt; index on (status,createdAt).
+    - Added 3 indexes on existing models to support the notification and job list queries (see the
+      `/// phase11` schema markers).
+  No field renames, no breaking column changes. Enums: existing channel/status enums extended
+  where needed for notifications (NOTIFICATION_CHANNEL, NOTIFICATION_STATUS).
+
+ENVIRONMENT CHANGES
+-------------------
+  New optional variables (all optional; safe defaults retained, see .env.example):
+    UPLOADS_DIR                 override uploaded-file storage directory
+    CORS_ORIGINS                comma-separated allow-list; empty means accept any origin
+    NOTIFICATION_MAX_BROADCAST  per-broadcast recipient cap (default 5000)
+    NOTIFICATION_RETRY_FAILED   re-enqueue failed broadcast sends (default true)
+    QUEUE_DEFAULT_ATTEMPTS / QUEUE_BACKOFF_MS / QUEUE_CONCURRENCY / JOB_LOG_RETENTION_DAYS
+    WORKER_PROCESS              set to 1 on the process that should run background workers
+    MAINTENANCE_MODE            disables everything except webhooks + status when true
+  Required for production (verified by requireEnv): DATABASE_URL, JWT_SECRET; strongly
+  recommended: REDIS_URL, WHATSAPP_APP_SECRET, WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID,
+  GOOGLE_AI_API_KEY.
+  Created /workspaces/400faqs/.env.example documenting every variable the code reads.
+
+API ENDPOINTS CREATED OR MODIFIED
+---------------------------------
+  Created:
+    GET  /api/admin/health                  system status (DB ping, queue, uptime, version)
+    GET  /api/admin/jobs                    list JobLog pages (filter by status/queue)
+    POST /api/admin/jobs/:id/retry          re-enqueue a failed job
+    POST /api/admin/jobs/:id/cancel         cancel scheduled/pending
+    POST /api/admin/jobs/:id/discard        mark discarded (no re-run)
+    POST /api/admin/notifications/send      send a notification to one phone
+    POST /api/admin/notifications/broadcast broadcast to all players (channels/status aware)
+    GET  /api/admin/notifications           admin's own notifications (read/unread)
+    GET  /api/public/notifications          player's notifications (phone-scoped)
+    GET  /api/public/notifications/unread-count
+    POST /api/public/notifications/read     mark one as read (phone-scoped)
+    POST /api/public/notifications/read-all
+  Modified:
+    POST /api/public/uploads                now requires phone (uploader scoping)
+    GET  /api/public/contributions/:ticket  optional ?phone= ownership check; strips owner fields
+    GET  /api/public/reports/:ticket        optional ?phone= ownership check; strips owner fields
+    GET  /api/public/category-requests/:id  optional ?phone= ownership check; strips owner fields
+    POST /api/public/ads/:id/click          returns 404 for unknown ad
+    (internal) /api/admin/uploads POST      audit-logged
+    (internal) webhook handler routes       shared verification, isolation, retryable errors
+
+SECURITY CHANGES
+----------------
+  - Webhook requests signature-verified when WHATSAPP_APP_SECRET is configured.
+  - Upload filename sanitization via MIME-allow-list-derived extensions.
+  - Ownership checks on public detail lookups; phone fields not leaked.
+  - 401 handling on the web client clears stale tokens and redirects to login.
+  - Existing protections re-verified: admin JWT + role checks on all admin routes; public actions
+    scoped to phone; contribution/report per-phone daily limits; rate limits on auth, code,
+    contributions, monetization, public and webhook traffic; helmet + compression + x-powered-by
+    disabled; request ids propagated to logs and errors; admin audit log on all mutations.
+  - No secrets were added to the repository; .env is git-ignored while .env.example is committed.
+
+WHATSAPP CHANGES
+----------------
+  - Notification deliveries now flow through the WhatsApp service with status tracking and
+    retries; failed deliveries are retryable from the admin Jobs page.
+  - Broadcast to all players emits one WhatsApp message per player through the queue.
+  - Webhook pipeline hardened (signature verification, deduplication, per-status isolation,
+    retryable-error classification, dedicated rate limit).
+  - Player-facing reliability messages on game/system failures.
+  - Config remains fully env-driven (WHATSAPP_*); masked in admin settings UI.
+
+GAME-SESSION CHANGES
+--------------------
+  - No game rules were changed. Re-verified atomic session/game transitions, invite expiry,
+    turn timeouts, per-round game moves with @@unique([sessionId,questionId]) race handling,
+    and player score aggregation. Phase 11 adds delivery and error-reporting reliability around
+    the existing engine (error messages to players, admin alerts on session service failures).
+
+MONETIZATION CHANGES
+--------------------
+  - Re-verified revenue ledger, per-verification revenue settings, payout rate, public-token link
+    gratification, and backfill/manual entry endpoints. No payments gateway was introduced; the
+    product remains free with no premium features or subscriptions (product decision). Admin
+    exceptions for revenue entries and status changes remain audit-logged.
+
+GOOGLE-AI CHANGES
+-----------------
+  - Duplicate-detection decision matrix now applies the admin-configured exact threshold
+    (contribution.aiThreshold) consistently across ALL AI branches; removed the hardcoded
+    EXACT_DUPLICATE floor.
+  - Unchanged architecture: DB candidates searched first, then Google AI classification with safe
+    fallback to manual review when AI is disabled/unavailable/malformed.
+
+FRONTEND CHANGES
+----------------
+  - /app/notifications page + header bell with unread badge (portal to /app/notifications).
+  - /admin/health, /admin/jobs, /admin/notifications pages; admin nav updated; verified all admin
+    links point at existing routes (no dead links).
+  - /app contributions/reports/requests list pages already pass phone for ownership; detail views
+    unaffected.
+  - Removed no-op middleware.ts; 401 handling added to the shared API fetch helper.
+
+FILES CREATED
+-------------
+  .env.example
+  packages/db/prisma/schema.prisma (Notification + JobLog models and indexes added)
+  apps/api/src/lib/context.ts
+  apps/api/src/lib/error-report.ts
+  apps/api/src/lib/joblog.ts
+  apps/api/src/lib/lock.ts
+  apps/api/src/lib/request-id.ts
+  apps/api/src/middleware/request-id.ts
+  apps/api/src/middleware/error.ts
+  apps/api/src/middleware/rateLimit.ts
+  apps/api/src/services/notifications.ts
+  apps/api/src/workers/notification.worker.ts
+  apps/api/src/services/recovery.ts
+  apps/api/src/routes/admin/health.ts
+  apps/api/src/routes/admin/jobs.ts
+  apps/api/src/routes/admin/notifications.ts
+  apps/api/src/routes/admin/audit.ts
+  apps/api/src/lib/audit.ts
+  apps/api/src/services/... (shared notification + recovery helpers referenced above)
+  apps/web/src/app/app/notifications/page.tsx
+  apps/web/src/app/admin/health/page.tsx
+  apps/web/src/app/admin/jobs/page.tsx
+  apps/web/src/app/admin/notifications/page.tsx
+  (plus the small UI components composing the above pages)
+
+FILES MODIFIED
+--------------
+  packages/db/package.json                     build now runs prisma generate first
+  packages/db/prisma/seed.ts                   (settings verified to cover Phase 11 systems)
+  apps/api/src/config.ts                       UPLOADS_DIR, CORS_ORIGINS, queue/notification env knobs
+  apps/api/src/app.ts                          CORS allow-list wiring
+  apps/api/src/index.ts                        locked cron schedule incl. recovery
+  apps/api/src/lib/queue.ts                    attempts/backoff/concurrency/JobLog hooks/health/retry
+  apps/api/src/lib/upload.ts                   MIME-allow-list-derived extensions
+  apps/api/src/lib/whatsapp.ts                 webhook signature verification + retryable errors
+  apps/api/src/routes/public.ts                uploads phone scoping, ownership checks, ads 404
+  apps/api/src/routes/admin/uploads.ts         audit logging on upload
+  apps/api/src/routes/admin/index.ts           new ops routers mounted
+  apps/api/src/routes/admin/categoryRequests.ts  notifies requester on approve/reject
+  apps/api/src/routes/admin/dashboard.ts       ops/health aggregates
+  apps/api/src/routes/webhook/index.ts         hardened webhook pipeline + campaign dedupe
+  apps/api/src/services/campaign.ts            claim-then-send deduplication
+  apps/api/src/services/question-similarity.ts configured exact threshold for EXACT_DUPLICATE
+  apps/web/src/lib/api.ts                      401 handling
+  apps/web/src/components/admin/...            nav + ops UI additions
+  apps/web/src/app/app/components/app-header.tsx  notification bell / unread badge
+
+FILES REMOVED
+-------------
+  apps/web/src/middleware.ts                   no-op placeholder removed
+
+CONFIGURATION NOTES
+-------------------
+  - DATABASE_URL unset during this phase: prisma generate works, migrations could not be applied.
+    Next phase MUST run `npm run db:generate` and `npm run db:migrate` (or db push) so the
+    Notification/JobLog tables and indexes exist before the API starts.
+  - REDIS_URL defaults to localhost; set it in production. Queue workers and Redis-backed cron
+    locks require Redis.
+  - JWT_SECRET must be set in production (requireEnv warns/errors otherwise).
+  - WHATSAPP_APP_SECRET enables X-Hub-Signature-256 verification; without it the webhook accepts
+    unverified-but-rate-limited traffic (dev mode).
+  - Worker process: run `WORKER_PROCESS=1 npm run worker` (BullMQ workers including
+    notification.worker) alongside the API. If a single instance hosts both, the cron locks keep
+    jobs single-run.
+  - CORS_ORIGINS empty accepts any origin (fine for a token-based public API); set the comma list
+    when a strict allow-list is desired.
+  - Contribution thresholds: contribution.aiThreshold (exact/auto-reject) and
+    contribution.similarThreshold (VERY_SIMILAR -> manual review), both editable in admin settings.
+
+IMPORTANT ARCHITECTURAL DECISIONS
+---------------------------------
+  (All inherited Phase 1-10 product decisions remain in force: free app, no premium features,
+  WhatsApp primary, phone = identity, DB-first Google-AI duplicate detection, exact dup
+  auto-reject, VERY_SIMILAR manual review, config-gated auto-approve, monetization via
+  verification/ad links, liquid-glass green/blue/orange design.)
+  NEW decisions:
+    - Background jobs are observability-first: every job is JobLog-tracked, and webhook/campaign
+      sends are claim-then-send deduplicated so retries never double-deliver.
+    - Cron jobs run under Redis locks so a multi-instance deployment stays single-run.
+    - Admin alerts are throttled per component to avoid alert storms.
+    - Notifications are channel-agnostic rows with a delivery worker; WEB and WHATSAPP statuses
+      share one lifecycle and are auditable from the admin Ops pages.
+    - Public API stays minimal-exposure: ownership-verifiable lookups, no internal owner fields,
+      scrambled ids/tickets only.
+    - Upload extensions are always server-derived from MIME type; client filenames are discarded.
+    - No new npm dependencies were added in this phase.
+
+KNOWN LIMITATIONS
+-----------------
+  - Prisma migrations not applied (no DATABASE_URL). Schema changes are pending until the next
+    phase runs migrate/db push.
+  - BUILD-ONLY phase: no runtime, WhatsApp, Google-AI, campaign, or live external-service tests
+    were performed (see below). The code is typecheck-clean but unverified at runtime.
+  - WhatsApp deliverability depends on Meta app token/phone number id/verify token being
+    configured; those are not set in this repo.
+  - Google AI key is not set; duplicate detection falls back to deterministic exact-match +
+    manual review until configured.
+  - OpenAI credentials are accepted but OpenAI is not used by any user-facing flow (reserved).
+  - Socket.io admin broadcast uses origin "*" — acceptable because every connection requires an
+    admin JWT, but tighten if an env-level allow-list is needed.
+  - Notification broadcast is capped (NOTIFICATION_MAX_BROADCAST) intentionally to protect outbound
+    message budget; beyond-cap recipients are skipped with an admin log entry.
+
+ANY UNRESOLVED ISSUES
+---------------------
+  - None blocking. The migration application (Notification/JobLog tables) is the only
+    "must-do-after-deploy" item and is documented above and in .env.example remarks.
+
+ANYTHING THE NEXT PHASE DEVELOPER NEEDS TO KNOW
+-----------------------------------------------
+  - Run, in order: npm install; npm run db:generate (prisma generate); apply schema via
+    `npm run db:migrate` or `npm run db:push`; npm run seed (creates admin + default settings);
+    start Redis; npm run dev in apps/api; wait for SQL push before starting apps/web.
+  - To run workers: WORKER_PROCESS=1 npm run worker (or dist worker:start).
+  - typecheck commands: packages/db -> apps/api -> apps/web (all pass: 0 errors).
+  - All Phase 11 behavior is environment/settings-driven: read apps/api/src/config.ts and the
+    seed DEFAULT_SETTINGS before tuning.
+  - The old result-file format was replaced per Phase 11 instruction; this file must end with the
+    exact strings below (they are the contract for "BUILD ONLY").
+  - Next phase scope candidates: apply + verify the migration, end-to-end notification delivery
+    test, live Google-AI threshold tuning, and (if products decide) optional CORS allow-list
+    rollout.
+
+PHASE 11 WAS BUILD ONLY.
+NO TESTING WAS PERFORMED.
+NO RUNTIME TESTS WERE PERFORMED.
+NO WHATSAPP TESTS WERE PERFORMED.
+NO GOOGLE AI TESTS WERE PERFORMED.
+NO LIVE EXTERNAL-SERVICE TESTS WERE PERFORMED.

@@ -87,11 +87,14 @@ const manualSchema = z.object({
     revenueAmount: z.number().min(-1000000).max(1000000),
     payoutAmount: z.number().min(-1000000).max(1000000).optional(),
     status: z.enum(STATUSES).optional(),
+    eventType: z.enum(["VERIFICATION", "CLICK", "IMPRESSION", "PAYOUT", "ADJUSTMENT", "OTHER"]).optional(),
+    isEstimated: z.boolean().optional(),
     providerReference: z.string().max(200).optional(),
     notes: z.string().max(1000).optional(),
     providerId: z.string().optional().nullable(),
     sessionId: z.string().optional().nullable(),
     userId: z.string().optional().nullable(),
+    recordAt: z.string().max(40).optional(),
   }),
 });
 
@@ -99,7 +102,7 @@ revenueRouter.post("/manual", validate(manualSchema), async (req, res) => {
   const admin = (req as unknown as AdminRequest).admin;
   const body = (req as unknown as { validated: { body: z.infer<typeof manualSchema>["body"] } }).validated.body;
 
-  const entry = await addManualLedgerEntry(body);
+  const entry = await addManualLedgerEntry({ ...body, createdById: admin.id });
 
   await prisma.auditLog.create({
     data: {

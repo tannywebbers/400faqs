@@ -1,0 +1,360 @@
+PHASE 11 RESULT
+===============
+
+PHASE NUMBER AND NAME
+---------------------
+Phase 11 — Advanced Analytics, Monetization Revenue Tracking, Contribution/AI Analytics &
+Admin Business Intelligence (Admin BI build-out on the 400QUES monorepo).
+
+This is the analytics companion deliverable of Phase 11. The production-readiness half of the
+same phase (Admin Ops Suite, notifications infrastructure, jobs visibility/recovery, webhook
+reliability, cross-cutting hardening) is documented separately in PHASE11RESULT.TXT. This file
+reports the Advanced Analytics & Revenue Tracking work only.
+
+IMPLEMENTATION SUMMARY
+----------------------
+Phase 11 (analytics build-out) was carried out on the completed 400QUES monorepo
+(packages/db, apps/api, apps/web) and delivered a full admin BI surface on top of the existing
+product while keeping every constraint (build-only, no new dependencies, no runtime testing):
+
+  - A new analytics service suite (apps/api/src/services/analytics-advanced.ts) with DB-aggregated
+    BI for platform overview, users, sessions, contributions, AI screening, WhatsApp messaging,
+    monetization (8-step verification funnel), revenue (ESTIMATED vs CONFIRMED), daily timeseries,
+    top questions/leaders, question analytics, and category rankings — every response masks phone
+    numbers and is bounded (no whole-table loads).
+  - A revenue trust model: ESTIMATED revenue is computed on read from real activity x admin-entered
+    provider rates (never auto-written as real money); CONFIRMED revenue comes only from confirmed
+    RevenueLedger rows; automations create ledger rows with eventType=VERIFICATION and
+    isEstimated=true; every ledger row tracks eventType, estimate flag, recordedAt, confirmedAt,
+    and the creating admin (createdById).
+  - Extended revenue + monetization admin APIs: manual ledger entries now record eventType /
+    estimate flag / recorded-at / metadata / creating admin; ad-provider admin CRUD now manages
+    revenue model (CPM/CPC/CPA/FIXED), currency, CPM/CPC/CPA rates, fixed payout per verification,
+    and per-event estimated payouts with audit on every settings change.
+  - 13 new /api/admin/analytics/* endpoints and a dataset-aware CSV export that keeps the legacy
+    overview export byte-compatible (dataset=overview) while adding revenue/monetization/
+    contributions/sessions/users/questions/ai/whatsapp raw exports.
+  - The /admin/analytics page was rewritten as a 10-tab BI dashboard (Overview, Users, Sessions,
+    Content, Contributions, AI, WhatsApp, Monetization, Revenue, Categories) with preset + custom
+    date ranges, KPI grids with trend badges, recharts (line/bar/area), an 8-step monetization
+    funnel, category rankings, snapshot capture, and dataset-aware CSV export.
+  - The /admin dashboard now shows trailing-30d revenue quick stats (estimated/confirmed/total/paid)
+    and a "View Analytics" button.
+  - TypeScript typecheck passes with 0 errors for all three packages (db, api, web). A strict
+    BUILD-ONLY approach was followed: no tests, no servers, no runtime/WhatsApp/Google-AI/live-DB
+    verification. Lint was not run because the repo has no ESLint configuration (pre-existing).
+
+EXISTING FEATURES DISCOVERED
+----------------------------
+  - Phase 10 delivered the first analytics slice: /api/admin/analytics base (traffic/GateStatus
+    series), /whatsapp, /ai, /categories, /questions, daily snapshots + capture, and CSV export,
+    plus the RevenueLedger model, monetization settings (per-verification revenue, payout rate),
+    ad providers with public token links, and the WhatsApp verification gates.
+  - revenue.* settings and analytics.* settings already existed in the seed; this phase adds
+    analytics.enabled / analytics.retentionDays and revenue.estimationEnabled /
+    revenue.estimationMode switches.
+  - Existing infra reused as-is: admin JWT + role auth on the admin router, audit service,
+    config/settings helpers, recharts (already in root node_modules — NO new npm dependencies,
+    constraint honored), TanStack Query, the design system (liquid-glass, white/green + blue/orange).
+  - Existing snapshot system (AnalyticsSnapshot model + capture route + daily cron) left untouched
+    and still powers the long-range cumulative chart.
+  - Schema facts re-verified so the new services stay compatible: GameMove.status is a String
+    (default "PENDING_ANSWER") not an enum; SessionStatus/SessionState/ContributionStatus (incl.
+    FLAGGED)/GateStatus (PENDING/VERIFIED/EXPIRED/FAILED/CANCELLED) enums; revenue ledger statuses
+    are lowercase strings ("pending"/"confirmed"/"paid"/"rejected"); MessageLog is message-by-message
+    with direction/phone/type/status/content/templateId.
+
+FEATURES ADDED
+--------------
+  1. analytics service suite (apps/api/src/services/analytics-advanced.ts):
+     - resolveRange / buildDaySeries / countRowsByDay / round2 / maskPhone shared helpers.
+     - getAnalyticsOverview(from,to): KPIs with period-over-period trend (value/previous/
+       changePct/direction), category/status breakdowns, ratio stats, daily series, top categories
+       and top questions (all positively gated on the existing analytics.enabled setting).
+     - getUserAnalytics(from,to): totals, new/active/returning + churn-series, by-status, by-day,
+       most-played/dormant phone buckets (masked), top users list (masked).
+     - getSessionAnalytics(from,to): totals (created/completed/abandoned/avg turns/avg duration),
+       daily series, by-status, by-state, by-category.
+     - getContributionAnalytics(from,to): submitted/approved/rejected/duplicates, by-category,
+       by-type, AI-confidence buckets, top contributors (masked), daily series.
+     - getAIAnalytics(from,to): total checked, AI availability + fallback cases, classification
+       distribution (EXACT_DUPLICATE/VERY_SIMILAR/UNIQUE), duplicates vs unique, review-required,
+       average confidence/score, duplicate rejection rate, confidence distribution, examples,
+       and costData.available=false with the "AI COST DATA NOT AVAILABLE" note (no token feed).
+     - getWhatsAppAdvanced(from,to): totals, by-type, by-status; per-day inbound/outbound; template
+       delivery stats (sent/delivered/read/failed, success rate).
+     - getMonetizationAnalytics(from,to): gates by status (PENDING/VERIFIED/EXPIRED/FAILED/
+       CANCELLED), success & verification rates, avg completion seconds/attempts, gates per session/
+       per user/per round, by-provider rows with linkOpens/codeRequests/failed/verificationRate/
+       estimatedRevenue, daily gates/verified series, and the 8-step funnel:
+       Gameplay -> Gate created -> Link opened -> Countdown completed -> Code requested ->
+       Code submitted -> Verified -> Game resumed (each with conversionPct + dropoffPct + notes).
+     - getRevenueAnalytics(from,to): totals (estimated/confirmed/total/paid) with trend, revenue by
+       provider, by event type, by day, top-value ledger rows, greenfield split estimated vs
+       confirmed, and the latest entries feed.
+     - getTimeseries(from,to): daily users/sessions/moves/questions/contributions/reports/gates/
+       messages/revenue series backing the Overview charts and export.
+     - getTopAnalytics(from,to): top questions, least played, most reported, highest skip rate,
+       and top players (masked).
+     - getQuestionAnalytics(): rank-aware question list (plays/reports/skips/answer rate/difficulty/
+       AI score) and difficulty distribution.
+     - getCategoryRankings(): per-category plays, sessions, verifications (gates), verification
+       rate, contribution counts, and estimated revenue from real verification activity.
+     - renderAnalyticsCsv(dataset, from, to): tabular CSV for revenue, monetization (incl. funnel),
+       contributions, sessions, users, questions, ai, whatsapp, plus the legacy overview-series
+       default (dataset=overview stays byte-compatible with the old export).
+  2. Revenue trust attributes (services/revenue.ts + schema): RevenueLedger rows now distinguish
+     ESTIMATED (isEstimated=true — automation-created, needs confirmation) from CONFIRMED
+     (isEstimated=false once an admin confirms/paid); manual entries carry eventType, estimate
+     flag, recordedAt, metadata and the creating admin; getRevenueStats adds estimates vs confirmed
+     split + byEventType aggregation.
+  3. Revenue settings toggles (seed): revenue.estimationEnabled (compute ESTIMATED revenue) and
+     revenue.estimationMode (provider_rates | flat), plus analytics.enabled / analytics.retentionDays.
+  4. Admin revenue KPI tiles + "View Analytics" CTA on /admin dashboard; the /admin/analytics BI
+     page rewrite (see FRONTEND CHANGES).
+
+FEATURES UPDATED
+----------------
+  - services/analytics.ts: exported countRowsByDay(rows) wrapper around the private countMap.
+  - routes/admin/analytics.ts: replaced per-route query parsing with a shared queryRange() helper
+    and added the new BI endpoints (see API ENDPOINTS); /export now takes a dataset param.
+  - routes/admin/revenue.ts: POST /manual schema + handler extended (eventType, isEstimated,
+    recordAt, metadata, createdById=admin.id).
+  - routes/admin/monetization.ts: provider POST/PUT now manage revenue config fields and write an
+    audit trail when revenue settings change.
+  - apps/web/src/app/admin/page.tsx: trailing-30d revenue quick stats + View Analytics button.
+  - apps/web/src/app/admin/analytics/page.tsx: full rewrite (see FRONTEND CHANGES).
+  - packages/db/prisma/seed.ts: new analytics.* + revenue.* settings rows.
+
+BUGS / FUNCTIONALITY FIXED
+--------------------------
+  1. Gate total precedence bug (analytics-advanced.ts overviewBag + monetization gateCreated):
+     `?? 0` combined with additions for other status counts without parentheses collapsed the
+     "all gates / gates created" totals, so KPIs could be wrong whenever a status bucket was null.
+     Fixed by wrapping every `?? 0` term in explicit parentheses.
+  2. revenue.ts: `input.isEstimated ?? (status !== "confirmed" && status !== "paid")` — `??` and
+     `&&` mix-up could compute the estimate flag incorrectly; broken out with explicit parens and a
+     RevenueEventType import/cast for eventType normalization.
+  3. Removed a `p.lastName ??=` mutation loop that could corrupt the phone->player aggregation map.
+  4. Removed a dead gateProvider map and a pointless `for (const row of statusGroup.slice()) void row;`
+     (no-op leftover).
+  5. frontend applyCalendar: reassigning a `const start` in the YTD branch (TS2588) -> now `let`.
+  6. frontend preset buttons: a convoluted mixed-type highlight condition (TS2367) and the presets
+     were reworked to a {key,label,run} list with an explicit activeKey; leftover activeRange state
+     removed.
+  7. CSV export dataset mismatch: the UI offered a "WhatsApp" export but renderAnalyticsCsv had no
+     whatsapp case (silently fell back to the overview series); a WhatsApp message-log export case
+     was added (date/direction/phone/type/status/template/WA message/content/error).
+
+DATABASE / SCHEMA CHANGES
+-------------------------
+  Schema file: packages/db/prisma/schema.prisma. A migration must be generated and applied by the
+  next phase (DATABASE_URL was not available; run `prisma migrate dev --name phase11_analytics`
+  then `prisma db push` in non-dev environments):
+    - New enums: RevenueEventType (VERIFICATION | CLICK | IMPRESSION | PAYOUT | ADJUSTMENT |
+      OTHER) and ProviderRevenueModel (CPM | CPC | CPA | FIXED).
+    - AdProvider gained revenue config: revenueModel (default CPA), currency (default USD),
+      cpmRate, cpcRate, cpaRate, fixedPayoutPerVerification, estimatedPayoutPerVerification,
+      estimatedPayoutPerClick, estimatedPayoutPerImpression (all Float default 0).
+    - RevenueLedger gained: eventType (RevenueEventType default VERIFICATION), isEstimated
+      (Boolean default true), recordedAt (DateTime default now), confirmedAt (DateTime?),
+      metadata (Json?), createdById (String?) + createdBy relation "RevenueLedgerCreator"
+      (Admin?, onDelete: SetNull); new indexes on [eventType, createdAt], [isEstimated,
+      createdAt] and [createdById].
+    - Admin gained the RevenueLedger[] back-relation revenueLedgerCreated.
+  The Prisma client was regenerated (v5.22.0). No field renames and no breaking column changes.
+
+ENVIRONMENT CHANGES
+-------------------
+  None. This phase adds no new environment variables; all behavior is settings-driven via the
+  seed (analytics.*, revenue.*) and existing config.ts knobs.
+
+API ENDPOINTS CREATED OR MODIFIED
+---------------------------------
+  Created (all on the existing admin router, admin auth required):
+    GET  /api/admin/analytics/overview            KPI overview + trends + top categories/questions
+    GET  /api/admin/analytics/users               user growth/retention/churn, masked lists
+    GET  /api/admin/analytics/sessions            session throughput/completion/status/state
+    GET  /api/admin/analytics/contributions       contribution pipeline + AI confidence buckets
+    GET  /api/admin/analytics/ai/advanced         AI screening analytics + cost availability note
+    GET  /api/admin/analytics/whatsapp/advanced   WhatsApp volume/status/template analytics
+    GET  /api/admin/analytics/monetization        gate funnel, by-provider, daily series
+    GET  /api/admin/analytics/revenue             estimated vs confirmed totals + provider/type splits
+    GET  /api/admin/analytics/timeseries          daily platform series
+    GET  /api/admin/analytics/top                 top/least-played/most-reported/highest-skip + leaders
+    GET  /api/admin/analytics/monetization/funnel 8-step verification funnel with conversion/dropoff
+    GET  /api/admin/analytics/questions/advanced  question effectiveness + difficulty distribution
+    GET  /api/admin/analytics/categories/rankings category performance + estimated revenue
+  Modified:
+    GET  /api/admin/analytics/export              now takes ?dataset= (overview | users | sessions |
+                                                   questions | contributions | ai | whatsapp |
+                                                   monetization | revenue); dataset=overview keeps the
+                                                   legacy CSV shape; filename is dataset + range-aware.
+  Modified (revenue/monetization admin APIs):
+    POST /api/admin/revenue/manual               extended with eventType, isEstimated, recordAt,
+                                                 metadata; createdById is recorded.
+    POST /api/admin/monetization/providers       + PUT /:id  manage revenueModel/currency/rates/
+                                                 payouts with audit.
+
+SECURITY CHANGES
+----------------
+  - All new endpoints sit behind the existing admin JWT + role gate (no public exposure).
+  - Phone numbers are masked (maskPhone helper) in every BI response that lists people (top users,
+    top contributors, most-dormant, top players).
+  - Manual ledger entries record the creating admin (createdById) instead of being anonymous.
+  - CSV exports include phone numbers only for the existing admin-only export endpoints (matching
+    the established Phase 10 admin-export pattern); public surfaces never leak phones.
+  - AI cost is explicitly reported as unavailable rather than omitted or fabricated.
+  - No secrets added; .env remains git-ignored and .env.example is committed.
+
+WHATSAPP CHANGES
+----------------
+  - No behavioral changes. Added GET /api/admin/analytics/whatsapp/advanced (message log
+    analytics by type/status/day and per-template delivery stats) and the whatsapp CSV export case.
+
+GAME-SESSION CHANGES
+--------------------
+  - No game rules changed. The new sessions Analytics reads existing Session/GameMove data only.
+  - GameMove.status remains a String ("PENDING_ANSWER"); the analytics services filter on it as a
+    string so no enum migration is needed.
+
+MONETIZATION CHANGES
+--------------------
+  - Revenue trust model: ESTIMATED revenue is computed on-read from real monetization activity
+    (verifications) x admin-entered per-provider rates (estimationMode=provider_rates) or the
+    per-verification revenue setting (estimationMode=flat), and is always labelled ESTIMATED;
+    CONFIRMED revenue comes only from confirmed/paid RevenueLedger rows. Automations write ledger
+    rows as isEstimated=true, so no revenue is ever fabricated into the books.
+  - Providers carry CPA/CPM/CPC/FIXED revenue model + rates + fixed/estimated payouts, all
+    editable by admins with audit; provider analytics rows include verification rate + estimated
+    revenue from real activity.
+  - 8-step monetization funnel (Gameplay -> Gate created -> Link opened -> Countdown completed ->
+    Code requested -> Code submitted -> Verified -> Game resumed) with conversion and dropoff.
+
+GOOGLE-AI CHANGES
+-----------------
+  - No decision-matrix changes. Added AI screening analytics: classification distribution
+    (EXACT_DUPLICATE / VERY_SIMILAR / UNIQUE), duplicates vs unique counts, review-required,
+    average confidence & score, duplicate rejection rate, confidence buckets, sample rows, and an
+    explicit "AI COST DATA NOT AVAILABLE" note because no token-feed exists.
+
+FRONTEND CHANGES
+----------------
+  - /admin/analytics (apps/web/src/app/admin/analytics/page.tsx rewritten): 10 tabs
+    (Overview, Users, Sessions, Content, Contributions, AI, WhatsApp, Monetization, Revenue,
+    Categories); date presets (Today/Yesterday/7d/14d/30d/60d/90d/This month/Last month/YTD) plus
+    custom from/to date inputs; KPI grids with TrendBadge (value, previous, % change, up/down/flat);
+    recharts line/bar/area charts for series; the 8-step monetization funnel as a horizontal bar
+    breakdown; category rankings table; cumulative-snapshots chart + "Capture now" button;
+    dataset-aware CSV export dropdown wired to /export?dataset=...; full response types for every
+    endpoint; per-tab lazy queries (enabled only when the tab is active).
+  - /admin dashboard (apps/web/src/app/admin/page.tsx): four trailing-30d revenue quick tiles
+    (Estimated, Confirmed, Total, Paid) linking to /admin/analytics, and a "View Analytics" button
+    in the header linking to /admin/analytics.
+
+FILES CREATED
+-------------
+  PHASE_11_RESULT.TXT
+  apps/api/src/services/analytics-advanced.ts     complete BI service suite (~1,650 lines)
+
+FILES MODIFIED
+--------------
+  packages/db/prisma/schema.prisma        RevenueEventType/ProviderRevenueModel enums,
+                                          AdProvider revenue config, RevenueLedger trust fields +
+                                          indexes, Admin back-relation (migration pending)
+  packages/db/prisma/seed.ts              analytics.enabled/retentionDays, revenue.estimationEnabled/
+                                          estimationMode settings
+  apps/api/src/services/analytics.ts      exported countRowsByDay wrapper
+  apps/api/src/services/revenue.ts        isEstimated/eventType/recordedAt/confirmedAt/createdById +
+                                          estimate-flag logic + LedgerStats extension + precedence fix
+  apps/api/src/routes/admin/analytics.ts  13 new BI endpoints + dataset-aware /export + queryRange
+  apps/api/src/routes/admin/revenue.ts    POST /manual extended + createdById
+  apps/api/src/routes/admin/monetization.ts provider revenue config CRUD + audit
+  apps/web/src/app/admin/analytics/page.tsx  full BI dashboard rewrite
+  apps/web/src/app/admin/page.tsx         revenue quick stats + View Analytics button
+
+FILES REMOVED
+-------------
+  None.
+
+CONFIGURATION NOTES
+-------------------
+  - No DATABASE_URL during this phase: prisma generate works, migrations could not be applied.
+    Next phase MUST run `npm run db:generate`, then `npm run db:migrate` (or `npm run db:push`)
+    so the RevenueLedger fields/indexes and AdProvider revenue columns exist before the API starts.
+  - Settings toggles (seed): analytics.enabled (false disables the new BI endpoints), 
+    analytics.retentionDays (soft cap on source data age surfaced), revenue.estimationEnabled
+    (off => estimated figures report 0), revenue.estimationMode (provider_rates | flat).
+  - ESTIMATED revenue requires admin-entered provider rates; with no rates configured estimates
+    report 0 while confirmed ledger revenue still reports real rows.
+  - No new npm dependencies; recharts and existing UI kit were reused.
+
+IMPORTANT ARCHITECTURAL DECISIONS
+---------------------------------
+  (All inherited Phase 1-10 product decisions remain in force; no game/economy behavior changed.)
+  NEW decisions:
+    - Revenue is never fabricated: ESTIMATED = real activity x admin rates, computed on read, never
+      auto-written; only admins confirm entries, and a confirmed/paid ledger row is the single
+      source of CONFIRMED revenue. Totals keep separate estimated, confirmed, total and paid views.
+    - AI cost can't be tracked without a token feed, so the UI/API say so explicitly instead of
+      guessing; monetization providers' estimated payouts stay admin inputs.
+    - All BI queries use DB aggregation (groupBy/count/raw where available) with bounded takes and
+      masked phones; no endpoint loads an unbounded table into memory.
+    - The new analytics stack is additive and gated: analytics.enabled keeps every endpoint
+      answerable but silent when disabled; the legacy analytics behavior (snapshots, overview CSV,
+      base endpoints) is preserved byte-for-byte.
+    - Provider-level revenue estimates live with the provider row (audited on change) so the BI can
+      attribute estimated revenue per provider/event without inventing truth.
+    - Everything new is admin-only; public API surface and webhook remain unchanged.
+    - No new npm dependencies were added in this phase.
+
+KNOWN LIMITATIONS
+-----------------
+  - Prisma migrations not applied (no DATABASE_URL): RevenueLedger/AdProvider changes are pending
+    until the next phase runs migrate/db push.
+  - BUILD-ONLY phase: no runtime, WhatsApp, Google-AI, campaign, or live external-service tests
+    were performed (see below). All code is typecheck-clean (db 0 / api 0 / web 0 errors) but
+    unverified at runtime.
+  - Estimated revenue is only as good as the admin-entered rates; with estimationMode=provider_rates
+    and no per-provider rates, estimates are 0 until configured.
+  - AI cost/accuracy figures stop at the AI service's response fields (score/classification/
+    availability); per-token dollar cost is not available.
+  - Lint was not configured in this repository (next lint interactively prompts for setup — a
+    pre-existing condition); typecheck is the verification gate used here.
+  - CSV exports are capped at 20,000 source rows per dataset to bound memory; very large ranges
+    may truncate.
+
+ANY UNRESOLVED ISSUES
+---------------------
+  - None blocking. The schema migration (RevenueLedger additions, AdProvider revenue columns) is
+    the only "must-do-after-deploy" item and is documented above and in CONFIGURATION NOTES.
+
+ANYTHING THE NEXT PHASE DEVELOPER NEEDS TO KNOW
+-----------------------------------------------
+  - Run, in order: npm install; npm run db:generate; apply schema via `npm run db:migrate` or
+    `npm run db:push`; npm run seed (adds the new analytics.* / revenue.* settings); start Redis;
+    npm run dev in apps/api; then apps/web.
+  - typecheck commands per workspace: packages/db, apps/api, apps/web — all currently 0 errors.
+  - Analytics toggles live in the settings table (admin settings UI): analytics.enabled,
+    analytics.retentionDays, revenue.estimationEnabled, revenue.estimationMode.
+  - New BI endpoints are documented in API ENDPOINTS; the frontend dashboard lives at
+    /admin/analytics and the /admin dashboard now links to it.
+  - To add a CSV dataset: add a case in renderAnalyticsCsv (analytics-advanced.ts) and an option in
+    /admin/analytics export dropdown; dataset=overview is the legacy contract and must stay
+    byte-compatible.
+  - Phone masking contract: UI/BI JSON responses use maskPhone; admin CSV exports follow the
+    established admin-only raw-phone pattern for reconciliation exports.
+  - ESTIMATED vs CONFIRMED contract: never write real revenue from estimates — automations set
+    isEstimated=true, admins confirm via the ledger status update (which flips the flag + sets
+    confirmedAt).
+  - The funnel "Countdown completed" and "Code submitted" steps are derived from events
+    (CODE_REQUESTED, verification attempts/outcomes) because there are no distinct rows for them.
+  - The mandated result-file format was kept: this file must end with the exact strings below
+    (the contract for "BUILD ONLY").
+
+PHASE 11 WAS BUILD ONLY.
+NO TESTING WAS PERFORMED.
+NO RUNTIME TESTS WERE PERFORMED.
+NO WHATSAPP TESTS WERE PERFORMED.
+NO GOOGLE AI TESTS WERE PERFORMED.
+NO LIVE EXTERNAL-SERVICE TESTS WERE PERFORMED.

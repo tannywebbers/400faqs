@@ -1,7 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { getAllSettings, settingsToRecord, settingNumber } from "./settings";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, RevenueEventType } from "@prisma/client";
 
 // ============================================================
 // Revenue / monetization ledger.
@@ -82,6 +82,7 @@ export async function recordVerifiedRevenue(gate: {
     await prisma.revenueLedger.create({
       data: {
         type: "AUTO",
+        eventType: "VERIFICATION",
         gateId: gate.id,
         sessionId: gate.sessionId,
         userId: gate.userId,
@@ -91,6 +92,7 @@ export async function recordVerifiedRevenue(gate: {
         payoutAmount: payout,
         revenueShare: round2(settings.payoutRate),
         status: "pending",
+        isEstimated: true,
         notes: "Auto-recorded on completed verification",
       },
     });
@@ -121,6 +123,7 @@ export async function backfillRevenueFromEvents(): Promise<{ processed: number; 
     await prisma.revenueLedger.create({
       data: {
         type: "AUTO",
+        eventType: "VERIFICATION",
         gateId: gate.id,
         sessionId: gate.sessionId,
         userId: gate.userId,
@@ -130,6 +133,7 @@ export async function backfillRevenueFromEvents(): Promise<{ processed: number; 
         payoutAmount: round2(amount * settings.payoutRate),
         revenueShare: round2(settings.payoutRate),
         status: "pending",
+        isEstimated: true,
         notes: "Backfilled from verification history",
       },
     });
@@ -142,14 +146,19 @@ export type LedgerStats = {
   rows: number;
   revenueTotal: number;
   payoutTotal: number;
+  estimatedRevenue: number;
+  confirmedRevenue: number;
   pendingRows: number;
   pendingRevenue: number;
   confirmedRows: number;
-  confirmedRevenue: number;
+  confirmedRevenueRows: number;
   paidRows: number;
   paidRevenue: number;
+  adjustments: number;
+  adjustmentAmount: number;
   autoRows: number;
   manualRows: number;
+  byEventType: { eventType: string; rows: number; amount: number }[];
   currency: string;
   averageRevenue: number;
 };
@@ -173,19 +182,34 @@ export async function getRevenueStats(opts: { from?: string; to?: string } = {})
   const pending = rows.filter((r) => r.status === "pending");
   const confirmed = rows.filter((r) => r.status === "confirmed");
   const paid = rows.filter((r) => r.status === "paid");
+  const estimated = rows.filter((r) => r.isEstimated);
+  const confirmedRev = rows.filter((r) => !r.isEstimated && r.status !== "rejected");
+  const adjustments = rows.filter((r) => r.eventType === "ADJUSTMENT" || (r.type === "MANUAL" && r.revenueAmount < 0) || r.status === "rejected");
+  const eventTypeMap = new Map<string, { eventType: string; rows: number; amount: number }>();
+  for (const r of rows) {
+    const cur = eventTypeMap.get(r.eventType) ?? { eventType: r.eventType, rows: 0, amount: 0 };
+    cur.rows += 1;
+    cur.amount += r.revenueAmount;
+    eventTypeMap.set(r.eventType, cur);
+  }
 
   return {
     rows: rows.length,
     revenueTotal: round2(sum(rows)),
     payoutTotal: round2(rows.reduce((acc, r) => acc + r.payoutAmount, 0)),
+    estimatedRevenue: round2(sum(estimated)),
+    confirmedRevenue: round2(sum(confirmedRev)),
     pendingRows: pending.length,
     pendingRevenue: round2(sum(pending)),
     confirmedRows: confirmed.length,
-    confirmedRevenue: round2(sum(confirmed)),
+    confirmedRevenueRows: confirmed.length + paid.length,
     paidRows: paid.length,
     paidRevenue: round2(sum(paid)),
+    adjustments: adjustments.length,
+    adjustmentAmount: round2(sum(adjustments)),
     autoRows: rows.filter((r) => r.type === "AUTO").length,
     manualRows: rows.filter((r) => r.type === "MANUAL").length,
+    byEventType: [...eventTypeMap.values()].sort((a, b) => b.amount - a.amount),
     currency: settings.currency,
     averageRevenue: rows.length ? round2(sum(rows) / rows.length) : 0,
   };
@@ -228,6 +252,7 @@ export async function listLedger(opts: {
         provider: { select: { id: true, name: true } },
         session: { select: { id: true, inviteCode: true, status: true, category: { select: { name: true } } } },
         user: { select: { id: true, phone: true, name: true, displayName: true } },
+        createdBy: { select: { id: true, name: true, email: true } },
       },
     }),
   ]);
@@ -240,35 +265,53 @@ export type ManualLedgerInput = {
   revenueAmount: number;
   payoutAmount?: number;
   status?: string;
+  eventType?: string;
+  isEstimated?: boolean;
   providerReference?: string;
   notes?: string;
   providerId?: string | null;
   sessionId?: string | null;
   userId?: string | null;
+  createdById?: string | null;
+  recordAt?: string;
+  metadata?: Prisma.InputJsonValue;
 };
 
 export async function addManualLedgerEntry(input: ManualLedgerInput) {
   const settings = await getRevenueSettings();
+  const eventType = (input.eventType ?? "VERIFICATION").toUpperCase() as RevenueEventType;
+  const status = input.status ?? "confirmed";
+  const isEstimated = input.isEstimated ?? (status !== "confirmed" && status !== "paid");
   return prisma.revenueLedger.create({
     data: {
       type: "MANUAL",
+      eventType,
       currency: input.currency && input.currency.length <= 8 ? input.currency.toUpperCase() : settings.currency,
       revenueAmount: input.revenueAmount,
       payoutAmount: input.payoutAmount ?? 0,
       revenueShare: input.revenueAmount ? round2((input.payoutAmount ?? 0) / input.revenueAmount) : 0,
-      status: input.status ?? "pending",
+      status,
+      isEstimated,
+      confirmedAt: status === "confirmed" || status === "paid" ? new Date() : null,
       providerReference: input.providerReference ?? null,
       notes: input.notes ?? "Manual adjustment",
       providerId: input.providerId ?? null,
       sessionId: input.sessionId ?? null,
       userId: input.userId ?? null,
+      createdById: input.createdById ?? null,
+      recordedAt: input.recordAt ? new Date(input.recordAt) : new Date(),
+      metadata: (input.metadata ?? null) as Prisma.InputJsonValue,
     },
   });
 }
 
 export async function updateLedgerStatus(id: string, data: { status?: string; notes?: string }): Promise<void> {
-  const patch: Record<string, unknown> = {};
-  if (data.status) patch.status = data.status;
+  const patch: Prisma.RevenueLedgerUpdateInput = {};
+  if (data.status) {
+    patch.status = data.status;
+    patch.isEstimated = data.status !== "confirmed" && data.status !== "paid";
+    if (data.status === "confirmed" || data.status === "paid") patch.confirmedAt = new Date();
+  }
   if (data.notes !== undefined) patch.notes = data.notes;
   await prisma.revenueLedger.update({ where: { id }, data: patch });
 }

@@ -5,9 +5,17 @@ import { validate, parsePagination } from "../../middleware/validate";
 import { AppError, ok } from "../../lib/response";
 import { slugify } from "../../lib/slugify";
 import { type AdminRequest } from "../../middleware/auth";
-import { notify } from "../../services/notifications";
+import { notify, type NotifyInput } from "../../services/notifications";
 
 export const categoryRequestsRouter = Router();
+
+async function notifyRequestor(
+  existing: { requestorPhone: string },
+  input: Omit<NotifyInput, "userId" | "phone" | "adminId">
+): Promise<void> {
+  const user = await prisma.user.findUnique({ where: { phone: existing.requestorPhone }, select: { id: true, phone: true } });
+  await notify({ ...input, userId: user?.id, phone: user?.phone ?? existing.requestorPhone });
+}
 
 categoryRequestsRouter.get("/", async (req, res) => {
   const { page, limit, skip } = parsePagination(req.query);
@@ -58,7 +66,7 @@ categoryRequestsRouter.patch("/:id", validate(reviewSchema), async (req, res) =>
         createdById: admin.id,
       },
     });
-    await notify({
+    await notifyRequestor(existing, {
       type: "CATEGORY_REQ",
       title: "Category approved",
       message: `Your requested category "${existing.name}" has been approved.`,
@@ -66,7 +74,7 @@ categoryRequestsRouter.patch("/:id", validate(reviewSchema), async (req, res) =>
     });
     await prisma.auditLog.create({ data: { adminId: admin.id, action: "APPROVE", targetType: "category-request", targetId: existing.id, details: { categoryId: category.id } } });
   } else {
-    await notify({ type: "CATEGORY_REQ", title: "Category request update", message: `Your request for "${existing.name}" was ${body.status.toLowerCase()}.` });
+    await notifyRequestor(existing, { type: "CATEGORY_REQ", title: "Category request update", message: `Your request for "${existing.name}" was ${body.status.toLowerCase()}.` });
     await prisma.auditLog.create({ data: { adminId: admin.id, action: "REJECT", targetType: "category-request", targetId: existing.id } });
   }
   res.json(ok(updated));

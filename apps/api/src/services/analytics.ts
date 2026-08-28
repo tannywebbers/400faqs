@@ -227,6 +227,10 @@ function countMap(rows: CountRow[]): Map<string, number> {
   return m;
 }
 
+export function countRowsByDay(rows: CountRow[]): Map<string, number> {
+  return countMap(rows);
+}
+
 export type AdminAnalytics = {
   start: string;
   end: string;

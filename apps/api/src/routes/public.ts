@@ -240,12 +240,14 @@ publicRouter.post("/contributions", contributionLimiter, validate(contributionSc
 });
 
 publicRouter.get("/contributions/:ticket", async (req, res) => {
+  const ownerPhone = String(req.query.phone ?? "").trim();
   const contribution = await prisma.contribution.findUnique({
     where: { ticket: req.params.ticket },
-    select: { ticket: true, status: true, question: true, type: true, aiScore: true, rejectionReason: true, aiResult: true, createdAt: true },
+    select: { ticket: true, status: true, question: true, type: true, aiScore: true, rejectionReason: true, aiResult: true, userPhone: true, createdAt: true },
   });
   if (!contribution) throw new AppError(404, "Submission not found");
-  res.json(ok({ ...contribution, classification: duplicateClassification(contribution.aiResult) }));
+  if (ownerPhone && contribution.userPhone !== ownerPhone) throw new AppError(404, "Submission not found");
+  res.json(ok({ ...contribution, userPhone: undefined, classification: duplicateClassification(contribution.aiResult) }));
 });
 
 const contributionStatuses = ["PENDING", "APPROVED", "REJECTED", "FLAGGED"] as const;
@@ -361,12 +363,14 @@ publicRouter.post("/reports", contributionLimiter, upload.single("screenshot"), 
 });
 
 publicRouter.get("/reports/:ticket", async (req, res) => {
+  const ownerPhone = String(req.query.phone ?? "").trim();
   const report = await prisma.questionReport.findUnique({
     where: { ticket: req.params.ticket },
-    select: { ticket: true, status: true, reason: true, notes: true, createdAt: true, resolution: true, resolvedAt: true },
+    select: { ticket: true, status: true, reason: true, notes: true, createdAt: true, resolution: true, resolvedAt: true, reporterPhone: true },
   });
   if (!report) throw new AppError(404, "Report not found");
-  res.json(ok(report));
+  if (ownerPhone && report.reporterPhone !== ownerPhone) throw new AppError(404, "Report not found");
+  res.json(ok({ ...report, reporterPhone: undefined }));
 });
 
 const reportStatuses = ["OPEN", "IN_PROGRESS", "RESOLVED", "DISMISSED"] as const;
@@ -456,12 +460,14 @@ publicRouter.post("/category-requests", contributionLimiter, validate(categoryRe
 });
 
 publicRouter.get("/category-requests/:id", async (req, res) => {
+  const ownerPhone = String(req.query.phone ?? "").trim();
   const row = await prisma.categoryRequest.findUnique({
     where: { id: req.params.id },
-    select: { id: true, name: true, description: true, examples: true, reason: true, status: true, note: true, createdAt: true, updatedAt: true },
+    select: { id: true, name: true, description: true, examples: true, reason: true, status: true, note: true, requestorPhone: true, createdAt: true, updatedAt: true },
   });
   if (!row) throw new AppError(404, "Request not found");
-  res.json(ok(row));
+  if (ownerPhone && row.requestorPhone !== ownerPhone) throw new AppError(404, "Request not found");
+  res.json(ok({ ...row, requestorPhone: undefined }));
 });
 
 const categoryRequestStatuses = ["PENDING", "APPROVED", "REJECTED"] as const;
@@ -594,6 +600,95 @@ function maskPhone(phone: string): string {
 }
 
 // ============================================================
+// Notifications (phone-based, for the /app experience)
+// ============================================================
+
+async function findUserByPhone(phone: string) {
+  return prisma.user.findUnique({ where: { phone }, select: { id: true, phone: true } });
+}
+
+function toNotificationView(n: {
+  id: string;
+  type: string;
+  channel: string;
+  status: string;
+  title: string;
+  message: string;
+  link: string | null;
+  readAt: Date | null;
+  createdAt: Date;
+}) {
+  return {
+    id: n.id,
+    type: n.type,
+    channel: n.channel,
+    status: n.status,
+    title: n.title,
+    message: n.message,
+    link: n.link,
+    read: Boolean(n.readAt),
+    createdAt: n.createdAt,
+  };
+}
+
+publicRouter.get("/notifications", async (req, res) => {
+  const { page, limit, skip } = parsePagination(req.query);
+  const phone = String(req.query.phone ?? "").trim();
+  if (!phone) throw new AppError(400, "phone query parameter is required");
+
+  const user = await findUserByPhone(phone);
+  if (!user) throw new AppError(404, "User not found");
+
+  const where = { userId: user.id, NOT: { channel: "SYSTEM" } };
+  const [total, items, unread] = await Promise.all([
+    prisma.notification.count({ where }),
+    prisma.notification.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit }),
+    prisma.notification.count({ where: { ...where, readAt: null } }),
+  ]);
+
+  res.json(
+    ok(
+      items.map((n) => toNotificationView(n as Parameters<typeof toNotificationView>[0])),
+      { page, limit, total, totalPages: Math.ceil(total / limit), unread }
+    )
+  );
+});
+
+publicRouter.get("/notifications/unread-count", async (req, res) => {
+  const phone = String(req.query.phone ?? "").trim();
+  if (!phone) throw new AppError(400, "phone query parameter is required");
+  const user = await findUserByPhone(phone);
+  const count = user ? await prisma.notification.count({ where: { userId: user.id, readAt: null, NOT: { channel: "SYSTEM" } } }) : 0;
+  res.json(ok({ count }));
+});
+
+const notificationReadSchema = z.object({ body: z.object({ phone: z.string().min(8).max(20) }) });
+
+publicRouter.post("/notifications/:id/read", publicLimiter, validate(notificationReadSchema), async (req, res) => {
+  const body = (req as unknown as { validated: { body: z.infer<typeof notificationReadSchema.shape.body> } }).validated.body;
+  const user = await findUserByPhone(body.phone);
+  if (!user) throw new AppError(404, "User not found");
+
+  const existing = await prisma.notification.findUnique({ where: { id: req.params.id } });
+  if (!existing || existing.userId !== user.id) throw new AppError(404, "Notification not found");
+
+  const n = await prisma.notification.update({ where: { id: existing.id }, data: { readAt: new Date() } });
+  res.json(ok({ id: n.id, read: true }));
+});
+
+publicRouter.post("/notifications/read-all", publicLimiter, validate(notificationReadSchema), async (req, res) => {
+  const body = (req as unknown as { validated: { body: z.infer<typeof notificationReadSchema.shape.body> } }).validated.body;
+  const user = await findUserByPhone(body.phone);
+  if (!user) throw new AppError(404, "User not found");
+
+  const result = await prisma.notification.updateMany({
+    where: { userId: user.id, readAt: null, NOT: { channel: "SYSTEM" } },
+    data: { readAt: new Date() },
+  });
+  res.json(ok({ message: "All notifications marked as read", count: result.count }));
+});
+
+// ============================================================
 // Leaderboard / Search / Contact / Ads
 // ============================================================
 
@@ -663,14 +758,18 @@ publicRouter.get("/ads", async (req, res) => {
 });
 
 publicRouter.post("/ads/:id/click", async (req, res) => {
+  const ad = await prisma.ad.findUnique({ where: { id: req.params.id }, select: { id: true } });
+  if (!ad) throw new AppError(404, "Ad not found");
   await prisma.ad.update({ where: { id: req.params.id }, data: { clicks: { increment: 1 } } });
   res.json(ok({ message: "ok" }));
 });
 
 publicRouter.post("/uploads", publicLimiter, upload.single("file"), async (req, res) => {
   if (!req.file) throw new AppError(400, "No file uploaded");
+  const phone = String(req.body?.phone ?? "").trim();
+  if (!/^\d{8,20}$/.test(phone)) throw new AppError(400, "A valid phone query/body parameter is required");
   await processImage(req.file.path);
   const url = uploadedUrl(req, req.file.filename);
-  await saveUploadRecord(url, req.file.mimetype, req.file.size);
+  await saveUploadRecord(url, req.file.mimetype, req.file.size, phone);
   res.json(ok({ url }));
 });

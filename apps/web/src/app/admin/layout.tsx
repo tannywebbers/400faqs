@@ -29,6 +29,8 @@ import {
   Wallet,
   Menu,
   X,
+  Activity,
+  Hammer,
 } from "lucide-react";
 import { getToken, clearToken, getAdminUser } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -71,6 +73,8 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
       { href: "/admin/whatsapp", label: "WhatsApp", icon: MessageCircle },
       { href: "/admin/monetization", label: "Monetization", icon: CreditCard },
       { href: "/admin/notifications", label: "Notifications", icon: Bell },
+      { href: "/admin/health", label: "Health", icon: Activity },
+      { href: "/admin/jobs", label: "Jobs", icon: Hammer },
       { href: "/admin/audit", label: "Activity Log", icon: History },
       { href: "/admin/admins", label: "Admins", icon: ShieldCheck },
       { href: "/admin/settings", label: "Settings", icon: Settings },
