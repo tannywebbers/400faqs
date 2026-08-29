@@ -14,6 +14,9 @@ import {
   Activity,
   Check,
   Copy,
+  Trash2,
+  X,
+  BarChart3,
 } from "lucide-react";
 import { apiFetch, getToken } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -66,8 +69,33 @@ type AdProvider = {
   archived: boolean;
   priority: number;
   configuration: unknown;
+  placements: unknown;
+  revenueModel: string;
+  currency: string;
+  cpmRate: number;
+  cpcRate: number;
+  cpaRate: number;
+  fixedPayoutPerVerification: number;
   createdAt: string;
   _count?: { snippets: number; gates: number };
+};
+
+type AdTypesMeta = {
+  providerTypes: string[];
+  placements: string[];
+  eventTypes: string[];
+};
+
+type ProviderStats = {
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  verifications: number;
+  verifiedGates: number;
+  ctr: number;
+  conversionRate: number;
+  revenue: { estimated: number; confirmed: number; paid: number; payoutEstimated: number };
+  byEventType: { eventType: string; rows: number; amount: number }[];
 };
 
 type AdSnippet = {
@@ -108,6 +136,8 @@ type GateEvent = {
   createdAt: string;
   user?: { id: string; phone: string; name: string | null };
   session?: { id: string; inviteCode: string };
+  provider?: { id: string; name: string } | null;
+  placement?: string | null;
 };
 
 const GATE_COLOR: Record<string, "green" | "orange" | "blue" | "red" | "gray" | "purple"> = {
@@ -142,13 +172,21 @@ export default function AdminMonetizationPage() {
 
   const [providerForm, setProviderForm] = useState({
     name: "",
-    type: "CUSTOM",
+    type: "SCRIPT",
     description: "",
     enabled: true,
     priority: "100",
     configuration: "",
+    placements: "",
+    revenueModel: "CPA",
+    currency: "USD",
+    cpmRate: "0",
+    cpcRate: "0",
+    cpaRate: "0",
+    fixedPayoutPerVerification: "0",
   });
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
+  const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
 
   const [snippetForm, setSnippetForm] = useState({
     name: "",
@@ -206,6 +244,24 @@ export default function AdminMonetizationPage() {
   const providersQuery = useQuery<{ data: AdProvider[]; total: number; totalPages: number }>({
     queryKey: ["admin-monet-providers"],
     queryFn: () => apiFetch("/api/admin/monetization/providers?page=1&limit=50", { token }),
+  });
+
+  const typesMetaQuery = useQuery<AdTypesMeta>({
+    queryKey: ["admin-monet-types"],
+    queryFn: () => apiFetch("/api/admin/monetization/types", { token }),
+  });
+
+  const providerStatsQuery = useQuery<ProviderStats>({
+    queryKey: ["admin-monet-provider-stats", selectedProviderId],
+    queryFn: () => apiFetch(`/api/admin/monetization/providers/${selectedProviderId}/stats`, { token }),
+    enabled: Boolean(selectedProviderId),
+    refetchInterval: 30_000,
+  });
+
+  const providerTestQuery = useQuery<{ valid: boolean; errors: string[]; warnings: string[] }>({
+    queryKey: ["admin-monet-provider-test", selectedProviderId],
+    queryFn: () => apiFetch(`/api/admin/monetization/providers/${selectedProviderId}/test-config`, { token }),
+    enabled: Boolean(selectedProviderId),
   });
 
   const snippetsQuery = useQuery<{ data: AdSnippet[]; total: number; totalPages: number }>({
@@ -268,6 +324,10 @@ export default function AdminMonetizationPage() {
       if (providerForm.configuration.trim()) {
         configuration = JSON.parse(providerForm.configuration) as Record<string, unknown>;
       }
+      const placements = providerForm.placements
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
       return apiFetch("/api/admin/monetization/providers", {
         method: "POST",
         body: {
@@ -277,6 +337,13 @@ export default function AdminMonetizationPage() {
           enabled: providerForm.enabled,
           priority: Number(providerForm.priority),
           configuration,
+          placements,
+          revenueModel: providerForm.revenueModel,
+          currency: providerForm.currency,
+          cpmRate: Number(providerForm.cpmRate),
+          cpcRate: Number(providerForm.cpcRate),
+          cpaRate: Number(providerForm.cpaRate),
+          fixedPayoutPerVerification: Number(providerForm.fixedPayoutPerVerification),
         },
         token,
       });
@@ -293,6 +360,10 @@ export default function AdminMonetizationPage() {
       if (providerForm.configuration.trim()) {
         configuration = JSON.parse(providerForm.configuration) as Record<string, unknown>;
       }
+      const placements = providerForm.placements
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
       return apiFetch(`/api/admin/monetization/providers/${editingProvider}`, {
         method: "PUT",
         body: {
@@ -302,6 +373,13 @@ export default function AdminMonetizationPage() {
           enabled: providerForm.enabled,
           priority: Number(providerForm.priority),
           configuration,
+          placements,
+          revenueModel: providerForm.revenueModel,
+          currency: providerForm.currency,
+          cpmRate: Number(providerForm.cpmRate),
+          cpcRate: Number(providerForm.cpcRate),
+          cpaRate: Number(providerForm.cpaRate),
+          fixedPayoutPerVerification: Number(providerForm.fixedPayoutPerVerification),
         },
         token,
       });
@@ -309,6 +387,14 @@ export default function AdminMonetizationPage() {
     onSuccess: () => {
       invalidateAll();
       resetProviderForm();
+    },
+  });
+
+  const deleteProviderMutation = useMutation({
+    mutationFn: (id: string) => apiFetch(`/api/admin/monetization/providers/${id}`, { method: "DELETE", token }),
+    onSuccess: () => {
+      invalidateAll();
+      setSelectedProviderId(null);
     },
   });
 
@@ -372,7 +458,21 @@ export default function AdminMonetizationPage() {
 
   function resetProviderForm() {
     setEditingProvider(null);
-    setProviderForm({ name: "", type: "CUSTOM", description: "", enabled: true, priority: "100", configuration: "" });
+    setProviderForm({
+      name: "",
+      type: "SCRIPT",
+      description: "",
+      enabled: true,
+      priority: "100",
+      configuration: "",
+      placements: "",
+      revenueModel: "CPA",
+      currency: "USD",
+      cpmRate: "0",
+      cpcRate: "0",
+      cpaRate: "0",
+      fixedPayoutPerVerification: "0",
+    });
   }
 
   function resetSnippetForm() {
@@ -633,7 +733,15 @@ export default function AdminMonetizationPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>Type</Label>
-                  <Input placeholder="CUSTOM" value={providerForm.type} onChange={(e) => setProviderForm({ ...providerForm, type: e.target.value })} />
+                  <select
+                    value={providerForm.type}
+                    onChange={(e) => setProviderForm({ ...providerForm, type: e.target.value })}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {(typesMetaQuery.data?.providerTypes ?? ["SCRIPT", "DIRECT_LINK", "REDIRECT", "SNIPPET", "API", "CPA", "VERIFICATION", "OTHER"]).map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-2">
                   <Label>Priority (lower = first)</Label>
@@ -644,9 +752,45 @@ export default function AdminMonetizationPage() {
                   <Input placeholder="Optional description" value={providerForm.description} onChange={(e) => setProviderForm({ ...providerForm, description: e.target.value })} />
                 </div>
                 <div className="space-y-2 sm:col-span-3">
+                  <Label>Placements (comma-separated, e.g. GATE,HOME_INLINE)</Label>
+                  <Input placeholder="GATE,HOME_INLINE,CONTRIBUTION_PAGE" value={providerForm.placements} onChange={(e) => setProviderForm({ ...providerForm, placements: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Revenue model</Label>
+                  <select
+                    value={providerForm.revenueModel}
+                    onChange={(e) => setProviderForm({ ...providerForm, revenueModel: e.target.value })}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {["CPM", "CPC", "CPA", "FIXED"].map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Currency</Label>
+                  <Input maxLength={8} value={providerForm.currency} onChange={(e) => setProviderForm({ ...providerForm, currency: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>CPM rate</Label>
+                  <Input type="number" min={0} step="0.01" value={providerForm.cpmRate} onChange={(e) => setProviderForm({ ...providerForm, cpmRate: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>CPC rate</Label>
+                  <Input type="number" min={0} step="0.01" value={providerForm.cpcRate} onChange={(e) => setProviderForm({ ...providerForm, cpcRate: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>CPA rate</Label>
+                  <Input type="number" min={0} step="0.01" value={providerForm.cpaRate} onChange={(e) => setProviderForm({ ...providerForm, cpaRate: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Fixed payout / verification</Label>
+                  <Input type="number" min={0} step="0.01" value={providerForm.fixedPayoutPerVerification} onChange={(e) => setProviderForm({ ...providerForm, fixedPayoutPerVerification: e.target.value })} />
+                </div>
+                <div className="space-y-2 sm:col-span-3">
                   <Label>Configuration (JSON)</Label>
                   <textarea
-                    placeholder='{ "network": "ads.example", "accountId": "…" }'
+                    placeholder='{ "script": "…", "callbackSecret": "…" }'
                     rows={3}
                     value={providerForm.configuration}
                     onChange={(e) => setProviderForm({ ...providerForm, configuration: e.target.value })}
@@ -692,6 +836,7 @@ export default function AdminMonetizationPage() {
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Type</TableHead>
+                      <TableHead>Revenue model</TableHead>
                       <TableHead>Priority</TableHead>
                       <TableHead>Snippets</TableHead>
                       <TableHead>Status</TableHead>
@@ -706,6 +851,10 @@ export default function AdminMonetizationPage() {
                           <div className="text-xs text-muted-foreground">{p.description || "—"}</div>
                         </TableCell>
                         <TableCell><Badge variant="gray">{p.type}</Badge></TableCell>
+                        <TableCell>
+                          <div className="text-xs font-medium">{p.revenueModel ?? "—"}</div>
+                          <div className="text-xs text-muted-foreground">{(p.placements as string[] | null)?.join(", ") ?? "All"}</div>
+                        </TableCell>
                         <TableCell>{p.priority}</TableCell>
                         <TableCell>{p._count?.snippets ?? 0}</TableCell>
                         <TableCell>
@@ -720,6 +869,7 @@ export default function AdminMonetizationPage() {
                               size="sm"
                               disabled={p.archived}
                               onClick={() => {
+                                const placements = Array.isArray(p.placements) ? (p.placements as string[]).join(",") : "";
                                 setEditingProvider(p.id);
                                 setProviderForm({
                                   name: p.name,
@@ -728,10 +878,24 @@ export default function AdminMonetizationPage() {
                                   enabled: p.enabled,
                                   priority: String(p.priority),
                                   configuration: p.configuration ? JSON.stringify(p.configuration, null, 2) : "",
+                                  placements,
+                                  revenueModel: p.revenueModel ?? "CPA",
+                                  currency: p.currency ?? "USD",
+                                  cpmRate: String(p.cpmRate ?? 0),
+                                  cpcRate: String(p.cpcRate ?? 0),
+                                  cpaRate: String(p.cpaRate ?? 0),
+                                  fixedPayoutPerVerification: String(p.fixedPayoutPerVerification ?? 0),
                                 });
                               }}
                             >
                               Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setSelectedProviderId(selectedProviderId === p.id ? null : p.id)}
+                            >
+                              <Activity className="h-4 w-4" />
                             </Button>
                             {!p.archived && (
                               <Button
@@ -754,6 +918,23 @@ export default function AdminMonetizationPage() {
                                 <Archive className="h-4 w-4" />
                               </Button>
                             )}
+                            {!p.archived && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700"
+                                onClick={() => {
+                                  if (confirm(`Delete provider "${p.name}"? Providers with history are archived instead.`)) deleteProviderMutation.mutate(p.id);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {selectedProviderId === p.id && !p.archived && (
+                              <Button variant="ghost" size="sm" onClick={() => { setSelectedProviderId(null); }}>
+                                <X className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -763,6 +944,71 @@ export default function AdminMonetizationPage() {
               )}
             </CardContent>
           </Card>
+
+          {selectedProviderId && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><BarChart3 className="h-4 w-4" /> Provider performance</CardTitle>
+                <CardDescription>Anonymous, provider-agnostic performance + configuration check for this provider.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {providerStatsQuery.isLoading ? (
+                  <Skeleton className="h-24 w-full rounded-xl" />
+                ) : providerStatsQuery.data ? (
+                  <>
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Impressions</p>
+                        <p className="mt-1 text-2xl font-bold">{providerStatsQuery.data.impressions}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Clicks</p>
+                        <p className="mt-1 text-2xl font-bold">{providerStatsQuery.data.clicks} <span className="text-xs font-normal text-muted-foreground">CTR {providerStatsQuery.data.ctr}%</span></p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Conversions</p>
+                        <p className="mt-1 text-2xl font-bold">{providerStatsQuery.data.conversions} <span className="text-xs font-normal text-muted-foreground">CVR {providerStatsQuery.data.conversionRate}%</span></p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Verified gates</p>
+                        <p className="mt-1 text-2xl font-bold">{providerStatsQuery.data.verifiedGates}</p>
+                      </div>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div className="rounded-xl border border-line p-4">
+                        <p className="text-sm text-muted-foreground">Estimated revenue</p>
+                        <p className="mt-1 text-xl font-bold text-orange-600">{providerStatsQuery.data.revenue.estimated.toFixed(2)}</p>
+                      </div>
+                      <div className="rounded-xl border border-line p-4">
+                        <p className="text-sm text-muted-foreground">Confirmed revenue</p>
+                        <p className="mt-1 text-xl font-bold text-green-600">{providerStatsQuery.data.revenue.confirmed.toFixed(2)}</p>
+                      </div>
+                      <div className="rounded-xl border border-line p-4">
+                        <p className="text-sm text-muted-foreground">Paid</p>
+                        <p className="mt-1 text-xl font-bold">{providerStatsQuery.data.revenue.paid.toFixed(2)}</p>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+
+                {providerTestQuery.data && (
+                  <div className={`rounded-xl border p-4 ${providerTestQuery.data.valid ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
+                    <p className="font-medium">{providerTestQuery.data.valid ? "Configuration looks valid" : "Configuration needs attention"}</p>
+                    {providerTestQuery.data.warnings.length > 0 && (
+                      <ul className="mt-1 list-inside list-disc text-sm text-orange-700">
+                        {providerTestQuery.data.warnings.map((w) => <li key={w}>{w}</li>)}
+                      </ul>
+                    )}
+                    {providerTestQuery.data.errors.length > 0 && (
+                      <ul className="mt-1 list-inside list-disc text-sm text-red-700">
+                        {providerTestQuery.data.errors.map((e) => <li key={e}>{e}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ── Ad Snippets ───────────────────────────────── */}
@@ -1055,7 +1301,7 @@ export default function AdminMonetizationPage() {
                 >
                   All
                 </button>
-                {["GATE_CREATED", "LINK_OPENED", "CODE_REQUESTED", "CODE_GENERATED", "VERIFICATION_ATTEMPT", "VERIFICATION_SUCCESS", "VERIFICATION_FAILED", "GATE_EXPIRED", "GATE_CANCELLED"].map((t) => (
+                {["GATE_CREATED", "LINK_OPENED", "CODE_REQUESTED", "CODE_GENERATED", "VERIFICATION_ATTEMPT", "VERIFICATION_SUCCESS", "VERIFICATION_FAILED", "GATE_EXPIRED", "GATE_CANCELLED", "IMPRESSION", "CLICK", "CONVERSION", "VERIFICATION", "CALLBACK"].map((t) => (
                   <button
                     key={t}
                     onClick={() => { setEventType(t); setEventPage(1); }}
@@ -1082,6 +1328,7 @@ export default function AdminMonetizationPage() {
                         <TableHead>Type</TableHead>
                         <TableHead>Player</TableHead>
                         <TableHead>Session</TableHead>
+                        <TableHead>Provider / Placement</TableHead>
                         <TableHead>Details</TableHead>
                         <TableHead>Time</TableHead>
                       </TableRow>
@@ -1095,6 +1342,10 @@ export default function AdminMonetizationPage() {
                             <div className="font-mono text-xs text-muted-foreground">{ev.user ? maskPhone(ev.user.phone) : ""}</div>
                           </TableCell>
                           <TableCell className="font-mono text-xs">{ev.session?.inviteCode ?? "—"}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {ev.provider?.name ? ev.provider.name : "—"}
+                            {ev.placement ? <span className="text-muted-foreground"> / {ev.placement}</span> : null}
+                          </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
                             {ev.metadata && typeof ev.metadata === "object" ? JSON.stringify(ev.metadata).slice(0, 80) : "—"}
                           </TableCell>

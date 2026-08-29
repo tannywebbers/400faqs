@@ -14,6 +14,9 @@ import { notifyAdmins } from "../services/notifications";
 import { upload, processImage, uploadedUrl, saveUploadRecord } from "../lib/upload";
 import { AppError } from "../lib/response";
 import { QuestionType } from "@prisma/client";
+import { servePlacement, listSupportedProviderTypes } from "../services/adproviders";
+import { recordEvent } from "../services/monetization";
+import { recordProviderChannelRevenue } from "../services/revenue";
 
 export const publicRouter = Router();
 
@@ -559,4 +562,59 @@ publicRouter.post("/uploads", publicLimiter, upload.single("file"), async (req, 
   const url = uploadedUrl(req, req.file.filename);
   await saveUploadRecord(url, req.file.mimetype, req.file.size, phone);
   res.json(ok({ url }));
+});
+
+// ============================================================
+// Provider-agnostic ad serving + event tracking
+// ============================================================
+
+// Metadata used by the ad client. Never exposes credentials.
+publicRouter.get("/ads/meta", publicLimiter, async (_req, res) => {
+  const settings = await getPublicSettings();
+  res.json(ok({ enabled: settings["monetization.enabled"] === "true", types: listSupportedProviderTypes() }));
+});
+
+// Serve configured ads for a placement (e.g. /ads/placement/CONTRIBUTION_PAGE).
+publicRouter.get("/ads/placement/:placement", publicLimiter, async (req, res) => {
+  const placement = String(req.params.placement ?? "")
+    .trim()
+    .toUpperCase();
+  if (!placement) throw new AppError(400, "placement is required");
+  const served = await servePlacement(placement, 2);
+  res.json(ok(served));
+});
+
+// Track an ad event from the browser (IMPRESSION/CLICK/CONVERSION) with
+// idempotency key to prevent duplicate counting.
+const adEventSchema = z.object({
+  body: z.object({
+    providerId: z.string().min(1).max(64),
+    placement: z.string().min(1).max(64),
+    type: z.enum(["IMPRESSION", "CLICK", "CONVERSION"]),
+    eventId: z.string().min(8).max(128).optional(),
+  }),
+});
+
+publicRouter.post("/ads/events", publicLimiter, validate(adEventSchema), async (req, res) => {
+  const body = (req as unknown as { validated: { body: z.infer<typeof adEventSchema.shape.body> } }).validated.body;
+  const provider = await prisma.adProvider.findFirst({ where: { id: body.providerId, enabled: true, archived: false }, select: { id: true } });
+  if (!provider) throw new AppError(404, "Provider not found");
+
+  // Idempotency guard so a retried browser event is never double-counted.
+  const key = `ad-event:${body.providerId}:${body.type}:${body.eventId ?? `${body.placement}:${Date.now()}`}`;
+  try {
+    await prisma.processedEvent.create({ data: { eventId: key, kind: "ad-event" } });
+  } catch {
+    return res.json(ok({ deduped: true }));
+  }
+
+  await recordEvent(body.type, { providerId: provider.id, placement: body.placement, metadata: { source: "public" } });
+
+  // Attribute ESTIMATED revenue for impression / click channel events
+  // (CPM/CPC only; CPA/FIXED rely on verification/conversion callbacks).
+  if (body.type === "IMPRESSION" || body.type === "CLICK") {
+    await recordProviderChannelRevenue(provider.id, body.type, body.eventId ?? key);
+  }
+
+  res.json(ok({ recorded: true }));
 });

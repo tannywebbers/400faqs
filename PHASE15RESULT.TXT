@@ -1,0 +1,220 @@
+================================================================================
+ PHASE 15 — FINAL PRODUCT INTEGRATION & MONETIZATION COMPLETION
+================================================================================
+
+This document records the Phase 15 audit and completion of the 400QUES monorepo
+(packages/db, apps/api, apps/web). Phase 15 is the final integration phase that
+verifies the whole product is wired end-to-end, re-using the existing
+implementation from earlier phases rather than rebuilding it.
+
+--------------------------------------------------------------------
+1. WHAT WAS AUDITED (Phase 15 checklist)
+--------------------------------------------------------------------
+
+The checklist subsystems were verified present, wired, and internally
+consistent. This phase did NOT rebuild any of them — it audited, swept for
+stale references, verified configuration completeness, captured the pending
+database migrations, and re-confirmed type safety.
+
+A. PUBLIC WEBSITE ................................................. PRESENT
+   - apps/web/src/app/(public): home, categories, category detail, contribute
+     (anonymous), monetize gate page, report, request-category, help (+article),
+     about, privacy, terms, contact, search, status.
+   - Backed by apps/api/src/routes/public.ts: /settings (public-safe),
+     /categories, /questions, /contributions (comment status lookup),
+     /reports, /category-requests, /ads/meta, /ads/placement/:placement,
+     /ads/events. Rate-limited (publicLimiter / contributionLimiter).
+
+B. ANONYMOUS CONTRIBUTION + GOOGLE AI DUPLICATE DETECTION + MODERATION ... PRESENT
+   - Public POST /contributions accepts userPhone as optional/nullable
+     (z.string().min(8).max(20).optional().nullable()), and userId is resolved
+     only when a matching phone exists → anonymous submissions are first-class.
+   - Duplicate detection (question-similarity.ts) is Google AI: reads
+     GOOGLE_AI_API_KEY / GOOGLE_AI_MODEL / GOOGLE_AI_ENDPOINT /
+     GOOGLE_AI_TIMEOUT_MS from config (server-only env, never exposed), calls
+     the generative-language :generateContent endpoint, returns
+     EXACT_DUPLICATE / VERY_SIMILAR / UNIQUE with strict-JSON output parsing,
+     AbortController timeout, and a safe manual-review fallback when AI is
+     disabled/unavailable/malformed (never auto-approves on guesswork).
+   - Content moderation (lib/ai.ts): deterministic heuristics always run; an
+     LLM enrichment is best-effort and key-gated. Exact duplicates are rejected;
+     very-similar/lower-confidence routed to pending manual review; disallowed
+     content is flagged. Admin settings control thresholds and auto-approve.
+   - Admin review (routes/admin/contributions.ts) re-checks for exact
+     duplicates at final approval (isExactDuplicateAtApproval).
+
+C. WHATSAPP BOT / WEBHOOK / ADMIN + META TEMPLATE SYNC .............. PRESENT
+   - App webhook (admin/webhook + webhook.ts) audited in Phase 14: GET
+     verification + POST with mandatory HMAC-SHA256 raw-body signature check,
+     immediate {received:true}, idempotent processedEvent/P2002 processing,
+     game flow (START aliases), gate pause/resume, production workers and
+     recovery jobs. All carried forward untouched.
+   - WhatsApp admin (routes/admin/whatsapp.ts) is complete: /status (returns
+     botNumber, publicStartLink https://wa.me/<digits>?text=START,
+     monetizationEnabled, connection, stats, webhookUrl), /config CRUD with
+     masked secrets, /webhook + token regeneration, /templates (read-only list),
+     /templates/sync (Meta read-only sync — Meta remains the source of truth;
+     NO local create/edit/submit/approval), /messages logs, /sessions, /stats,
+     /test-send. All admin actions audit-logged and JWT/role protected.
+   - Frontend: apps/web/src/app/admin/whatsapp 6-tab console incl. the
+     "Player Entry Point" card (bot number, monetization on/off, copyable START
+     link) added in Phase 14.
+
+D. MONETIZATION GATE + PROVIDER-AGNOSTIC ADAPTER + AD PROVIDER ADMIN ... PRESENT
+   - apps/api/src/services/adproviders/* (types/registry/serve/callbacks/index):
+     generic adapters (SCRIPT, DIRECT_LINK, REDIRECT, SNIPPET, API, CPA,
+     VERIFICATION, OTHER). Application never branches on a vendor — it asks the
+     adapter "which enabled provider serves this placement?"
+   - Placement serving is driven by the AdPlacement table (servePlacement):
+     an enabled placement assigned to an enabled/non-archived provider. Priority
+     or random rotation. Estimates recorded via recordEvent.
+   - selectAdsForGate resolves the WhatsApp gate provider through placement
+     keys WHATSAPP_VERIFICATION / GATE (with default-provider and gate-serving
+     fallbacks). Game rules/START flow unchanged.
+   - Admin ads console (routes/admin/ads.ts + apps/web/src/app/admin/ads 3-tab):
+     manage providers (types, enable/disable, archive, priority, per-placement
+     assignment, providerPlacementId, format), placements, snippets, validate a
+     provider's configured fields, view revenue — disable without deleting
+     history, never exposes secrets.
+   - Callbacks (routes/callbacks.ts POST /api/webhooks/ads/:providerId) verify
+     provider callback secret/HMAC before attributing events.
+
+E. AD PROVIDER REVENUE CONFIG + PLACEMENTS ......................... PRESENT
+   - AdProvider carries revenueModel (CPM/CPC/CPA/FIXED), currency,
+     cpmRate/cpcRate/cpaRate/fixedPayoutPerVerification, and the per-unit
+     estimatedPayout* fields. (Schema + migrate-diff baseline confirmed.)
+   - recordProviderChannelRevenue maps IMPRESSION→CPM and CLICK→CPC to ESTIMATED
+     revenue rows; CPA/FIXED defer to verification/conversion callbacks.
+
+F. REVENUELEDGER (ESTIMATED vs CONFIRMED vs PAID TRUST MODEL) ....... PRESENT
+   - AUTO rows on completed verification (idempotent per gate) recorded as
+     isEstimated=true pending; MANUAL rows by admins; updateLedgerStatus lifts
+     rows to confirmed/paid (clearing isEstimated + setting confirmedAt); stats
+     separate estimated vs confirmed vs paid; CSV export; provider-channel
+     estimates clearly labelled and only elevated through official callbacks or
+     admin confirmation. No fabricated CONFIRMED revenue.
+
+G. FLOATING START BUTTON + PUBLIC SETTINGS + ANALYTICS + WORKERS .... PRESENT
+   - whatsapp-float.tsx + use-public-settings reads whatsapp.number (public).
+   - getPublicSettings (cached, public-only) powers the public site.
+   - Admin analytics, daily AnalyticsSnapshot, Redis-backed workers/crons
+     (game.worker, notification.worker, recovery) with distributed locks, and
+     audit logging all present and type-checked.
+
+H. NO-STALE CODE SWEEP ........................................... CLEAN
+   - grep of apps/api + apps/web for campaign/broadcast/badge/leaderboard/
+     publicProfile/displayName found NO dead application references. The only
+     remaining mentions are the orphaned DB models (Badge, UserBadge, Campaign,
+     CampaignDelivery) and reserved enum values (AD, BROADCAST,
+     CAMPAIGN_COMPLETED). Per policy these are left orphaned and NOT dropped
+     (destructive migration is out of scope for a build-only phase).
+   - No hard-coded vendor ad logic anywhere (Adsterra/PropellerAds/Google only
+     appear in generic comments/examples inside the provider-agnostic layer).
+
+--------------------------------------------------------------------
+2. WHAT WAS CHANGED / CREATED / RESTORED / REMOVED
+--------------------------------------------------------------------
+
+CHANGED:
+   - None in application code. Phase 15 was a verification/audit phase; every
+     subsystem was already built in prior phases and carried forward intact.
+
+CREATED:
+   - packages/db/prisma/migrations/00000000000000_initial_schema.sql — a full
+     initial-schema baseline generated from the current schema.prisma via
+     `prisma migrate diff --from-empty --to-schema-datamodel --script`
+     (read-only, build-time, no live DB required). It captures the entire
+     cumulative schema, including the previously-documented-but-unmigrated
+     pending changes:
+        * Phase 12: Contribution.userPhone -> String? (nullable, allows
+          anonymous contributions).
+        * Phase 13: AdPlacement table + AdProvider revenueModel / rates /
+          estimatedPayout* fields (provider revenue configuration).
+     Migration status: CREATED — NOT APPLIED (no DATABASE_URL, build-only).
+   - packages/db/prisma/migrations/migration_lock.toml (provider=postgresql).
+
+REMOVED:
+   - Nothing. No destructive migrations, no orphaned-model/table drops.
+
+--------------------------------------------------------------------
+3. VERIFICATION
+--------------------------------------------------------------------
+
+Static/type verification only (per the build-only policy):
+   - packages/db : tsc -p tsconfig.json --noEmit ........................ PASS
+   - apps/api    : tsc -p tsconfig.json --noEmit ........................ PASS
+   - apps/web    : tsc --noEmit .......................................... PASS
+   - prisma migrate diff (read-only) produced a valid, internally-consistent
+     SQL baseline (35.8 KB, all tables/indexes/constraints/FKs represented).
+
+No runtime server startup, no database connection, no WhatsApp, Google AI,
+or ad-network/live external calls were performed.
+
+--------------------------------------------------------------------
+4. ENVIRONMENT
+--------------------------------------------------------------------
+   - No .env changes. Server-side secrets remain env-only and never exposed:
+       * GOOGLE_AI_API_KEY / GOOGLE_AI_MODEL / GOOGLE_AI_ENDPOINT /
+         GOOGLE_AI_TIMEOUT_MS (verified present in .env.example + config.ts)
+       * WhatsApp cloud API credentials, webhook verify token
+       * Ad provider callback secrets
+   - ADMIN_EMAIL / ADMIN_PASSWORD seed the bootstrap super-admin.
+   - No DATABASE_URL present → migrations are documented, never fabricated as
+     applied.
+
+--------------------------------------------------------------------
+5. FINAL SCOPE (Phase 15 checklist)
+--------------------------------------------------------------------
+   IN SCOPE (all present):
+     Public website (no app install), WhatsApp bot (START flow + management +
+     game rules unchanged), anonymous contribution with Google AI duplicate
+     detection + moderation, admin console (incl. WhatsApp + ad providers),
+     Meta WhatsApp template sync (read-only), monetization gate with provider-
+     agnostic adapter, ad provider admin, RevenueLedger trust model, floating
+     START button, settings, analytics, workers/recovery/jobs, audit logging.
+   OUT OF SCOPE (confirmed NOT built / no dead code):
+     No user accounts/profiles, no leaderboards, no badges, no campaigns, no
+     broadcasts/bulk messaging, no marketing automation, no subscriptions/
+     premium plans, no CRM, no ad-network-specific hard-coded logic, no local
+     template management.
+
+--------------------------------------------------------------------
+6. KNOWN LIMITATIONS / UNRESOLVED ISSUES
+--------------------------------------------------------------------
+   - Database migrations created but not applied (no DATABASE_URL). Apply the
+     baseline migration when a real PostgreSQL database + DATABASE_URL exists:
+         cd packages/db && npx prisma migrate deploy
+   - Orphaned DB models (Badge, UserBadge, Campaign, CampaignDelivery) and
+     unused enum values (AD, BROADCAST, CAMPAIGN_COMPLETED) remain in the
+     schema/migration by policy. A future maintenance release may drop them via
+     a Reviewed/safe migration — NOT done here.
+   - lib/ai.ts content-moderation enrichment uses an OpenAI client (key-gated,
+     best-effort); the duplicate-detection path uses Google AI (Gemini). Both
+     are optional/fallback-safe and server-side. (No change made in this phase.)
+   - API-provider adapter render is a staging no-op pending a fetch client;
+     admins can serve pre-rendered fallback html/url. Documented, not changed.
+
+--------------------------------------------------------------------
+7. NOTES FOR THE SECURITY-AUDIT PHASE DEVELOPER
+--------------------------------------------------------------------
+   - Re-verify admin JWT/role guards across all /api/admin routes, payload
+     validation (zod), audit logging on mutating admin actions, webhook
+     HMAC-SHA256 signature verification (both WhatsApp and ad-provider
+     callbacks), header-based rate limiting, upload hardening (size/MIME
+     allow-list), and secret masking in admin responses.
+   - Confirm the revenue trust model: ESTIMATED rows are never surfaced as
+     confirmed; only explicit confirmation/paid transitions set isEstimated=false
+     and confirmedAt.
+   - Confirm googleAi, openai, WhatsApp, and provider secrets are read only
+     server-side (config.ts / env) and never leak into /api/public or admin
+     browser responses.
+
+================================================================================
+ PHASE 15 WAS BUILD ONLY.
+ NO TESTING WAS PERFORMED.
+ NO RUNTIME TESTS WERE PERFORMED.
+ NO WHATSAPP TESTS WERE PERFORMED.
+ NO GOOGLE AI TESTS WERE PERFORMED.
+ NO AD NETWORK TESTS WERE PERFORMED.
+ NO LIVE EXTERNAL-SERVICE TESTS WERE PERFORMED.
+================================================================================

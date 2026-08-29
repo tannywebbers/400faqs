@@ -140,11 +140,19 @@ function codesEqual(a: string, b: string): boolean {
 
 export async function recordEvent(
   type: string,
-  opts: { gateId?: string; sessionId?: string; userId?: string; metadata?: Prisma.InputJsonValue } = {}
+  opts: { gateId?: string; sessionId?: string; userId?: string; providerId?: string; placement?: string; metadata?: Prisma.InputJsonValue } = {}
 ): Promise<void> {
   try {
     await prisma.monetizationEvent.create({
-      data: { type, gateId: opts.gateId ?? null, sessionId: opts.sessionId ?? null, userId: opts.userId ?? null, metadata: (opts.metadata ?? null) as Prisma.InputJsonValue },
+      data: {
+        type,
+        gateId: opts.gateId ?? null,
+        sessionId: opts.sessionId ?? null,
+        userId: opts.userId ?? null,
+        providerId: opts.providerId ?? null,
+        placement: opts.placement ?? null,
+        metadata: (opts.metadata ?? null) as Prisma.InputJsonValue,
+      },
     });
   } catch (err) {
     logger.warn("[monetization] event record failed", (err as Error).message);
@@ -167,14 +175,29 @@ function shuffle<T>(arr: T[]): T[] {
  * configured rotation strategy and default selections.
  */
 export async function selectAdsForGate(settings: MonetizationSettings): Promise<{ providerId: string | null; snippetIds: string[] }> {
-  const [providers, snippets] = await Promise.all([
+  const [providers, snippets, gatePlacements] = await Promise.all([
     prisma.adProvider.findMany({ where: { enabled: true, archived: false }, orderBy: [{ priority: "asc" }, { createdAt: "desc" }] }),
     prisma.adSnippet.findMany({ where: { enabled: true, archived: false }, orderBy: [{ priority: "asc" }, { createdAt: "desc" }] }),
+    prisma.adPlacement.findMany({
+      where: { key: { in: ["WHATSAPP_VERIFICATION", "GATE"] }, enabled: true, provider: { is: { enabled: true, archived: false } } },
+      include: { provider: true },
+      orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
+    }),
   ]);
 
   let providerId: string | null = null;
   const defaultProvider = settings.defaultProviderId ? providers.find((p: AdProvider) => p.id === settings.defaultProviderId) : undefined;
-  providerId = defaultProvider ? defaultProvider.id : (providers[0]?.id ?? null);
+  // Prefer a provider assigned to the WhatsApp verification placement through
+  // the generic placement system; fall back to the default / first enabled
+  // provider that serves the GATE placement. The game flow is unchanged —
+  // this only chooses which enabled provider backs the gate.
+  const placementProvider = gatePlacements.find((gp) => gp.provider)?.provider;
+  const gateServing =
+    providers.find((p: AdProvider) => {
+      const placements = (p as { placements?: unknown }).placements;
+      return Array.isArray(placements) ? placements.includes("GATE") : true;
+    }) ?? undefined;
+  providerId = defaultProvider?.id ?? placementProvider?.id ?? gateServing?.id ?? providers[0]?.id ?? null;
 
   let ordered = snippets;
   if (settings.rotation === "random") ordered = shuffle(snippets);

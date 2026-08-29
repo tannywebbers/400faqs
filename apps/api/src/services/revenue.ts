@@ -142,6 +142,62 @@ export async function backfillRevenueFromEvents(): Promise<{ processed: number; 
   return { processed: events.length, created };
 }
 
+/**
+ * Record ESTIMATED provider channel revenue for a provider event
+ * (impression / click) based on the provider's revenue model:
+ *   CPM    -> events/1000 * cpmRate
+ *   CPC    -> cpmRate (per click)
+ *   CPA    -> cpaRate * conversionRateFactor (0 = skip until verified)
+ *   FIXED  -> fixedPayoutPerVerification (only used on verification)
+ * Keep estimation separate from confirmed revenue: rows are always
+ * created as isEstimated=true and are elevated only when an official
+ * provider callback or a verification confirms them.
+ */
+export async function recordProviderChannelRevenue(providerId: string, eventType: "IMPRESSION" | "CLICK", reference: string): Promise<void> {
+  if (!reference) return;
+  try {
+    const provider = await prisma.adProvider.findFirst({
+      where: { id: providerId },
+      select: { id: true, name: true, revenueModel: true, currency: true, cpmRate: true, cpcRate: true, cpaRate: true, fixedPayoutPerVerification: true },
+    });
+    if (!provider || provider.revenueModel === null) return;
+
+    const existing = await prisma.revenueLedger.findFirst({
+      where: { providerId: provider.id, eventType, notes: reference },
+    });
+    if (existing) return;
+
+    const settings = await getRevenueSettings();
+    const currency = provider.currency || settings.currency;
+    let amount = 0;
+    if (eventType === "IMPRESSION" && provider.revenueModel === "CPM") {
+      amount = (provider.cpmRate || 0) / 1000;
+    } else if (eventType === "CLICK" && provider.revenueModel === "CPC") {
+      amount = provider.cpcRate || 0;
+    } else {
+      return; // CPA / FIXED rely on verification / conversion callbacks instead.
+    }
+    if (amount <= 0) return;
+
+    await prisma.revenueLedger.create({
+      data: {
+        type: "AUTO",
+        eventType,
+        providerId: provider.id,
+        currency,
+        revenueAmount: round2(amount),
+        payoutAmount: 0,
+        revenueShare: 0,
+        status: "pending",
+        isEstimated: true,
+        notes: reference,
+      },
+    });
+  } catch (err) {
+    logger.warn("[revenue] provider channel revenue record failed", (err as Error).message);
+  }
+}
+
 export type LedgerStats = {
   rows: number;
   revenueTotal: number;

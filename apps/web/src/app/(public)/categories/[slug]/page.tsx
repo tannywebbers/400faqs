@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { MessageCircle, Flag, Users, HelpCircle, BookOpen } from "lucide-react";
 import { whatsappLink } from "@/lib/utils";
 import Link from "next/link";
+import { AdPlacement } from "@/components/ad/ad-placement";
 
 type CategoryDetail = {
   id: string;
@@ -168,6 +169,11 @@ export default async function CategoryDetailPage({ params }: { params: { slug: s
               <li>5. Play!</li>
             </ol>
           </div>
+
+          {/* Provider-agnostic ad placement (CATEGORY_PAGE).
+              Renders only if monetization is enabled and a provider serves
+              this placement. Never exposes provider credentials. */}
+          <AdPlacement placement="CATEGORY_PAGE" className="space-y-3" />
         </div>
       </div>
     </Container>

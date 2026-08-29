@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AdPlacement } from "@/components/ad/ad-placement";
 
 const schema = z.object({
   userPhone: z
@@ -203,6 +204,11 @@ export default function ContributePage() {
                 </AlertDescription>
               </Alert>
             )}
+
+            {/* Provider-agnostic ad placement for the contribution flow.
+                Only renders if monetization is enabled and a provider serves
+                the CONTRIBUTION_PAGE placement. Never exposes credentials. */}
+            <AdPlacement placement="CONTRIBUTION_PAGE" className="space-y-3" />
           </div>
         </div>
       )}

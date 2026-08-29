@@ -1,0 +1,241 @@
+================================================================================
+PHASE 14 RESULT — COMPLETE WHATSAPP BOT + WHATSAPP ADMIN + PRODUCTION FLOW
+Project: 400QUES monorepo (packages/db, apps/api, apps/web)
+Date: 2026-08-29
+Mode: BUILD ONLY
+================================================================================
+
+PHASE 14 WAS BUILD ONLY.
+NO TESTING WAS PERFORMED.
+NO RUNTIME TESTS WERE PERFORMED.
+NO WHATSAPP TESTS WERE PERFORMED.
+NO GOOGLE AI TESTS WERE PERFORMED.
+NO AD NETWORK TESTS WERE PERFORMED.
+NO LIVE EXTERNAL-SERVICE TESTS WERE PERFORMED.
+
+--------------------------------------------------------------------------------
+1. GOAL
+--------------------------------------------------------------------------------
+Phase 14 completes the WhatsApp-first product surface inherited from Phases 12-13:
+a reliable, fully-managed WhatsApp bot (game engine + monetization gates) and the
+admin console operators use to run it in production, back by the reliability
+infrastructure (workers, crons, recovery) that keeps real sessions healthy.
+
+This phase is primarily an AUDIT + COMPLETION pass: the WhatsApp bot, the admin
+WhatsApp console, the webhook ingestion, the Meta template sync and the
+monetization gate flow were verified end-to-end for production readiness, and the
+remaining operator-facing gap (surfacing the deployed player entry point and
+monetization state in the admin console) was closed.
+
+Scope stays tight: no new product features, no restored campaigns/broadcasts/
+badges/leaderboards/user-management/marketing, no WhatsApp game-rule or scoring
+changes, no local template authoring (Meta remains the source of truth).
+
+--------------------------------------------------------------------------------
+2. AUDIT — WHATSAPP BOT (APPS/API)
+--------------------------------------------------------------------------------
+Verified production-ready across the full inbound/outbound cycle.
+
+INBOUND (apps/api/src/routes/webhook.ts):
+  - GET /api/webhooks/whatsapp  subscription verification (hub.mode/hub.verify_
+    token/hub.challenge) against the configured verify token.
+  - POST /api/webhooks/whatsapp  uses the rawBody captured by express.json via the
+    verify hook and verifies X-Hub-Signature-256 (HMAC-SHA256 over the raw body
+    with WHATSAPP_APP_SECRET, timing-safe compare). The handler replies 200
+    {received:true} IMMEDIATELY (Meta expects a fast 200) and processes
+    asynchronously so slow work can never trigger Meta retry storms on the 200.
+  - Idempotency: every message id is claimed via prisma.processedEvent (kind
+    "message", phone) with P2002 dedup; duplicates are silently skipped.
+  - Retryable-vs-permanent split: on transient failures (prisma P* errors,
+    AbortError/TimeoutError, fetch/connect/timeout) the claim is cleared and the
+    error rethrown so Meta re-delivers; permanent per-message errors are logged
+    and NOT requeued (no infinite redelivery).
+  - Per-status isolation when processing delivery statuses; delivery status rows
+    update MessageLog.waMessageId and emit a whatsapp:status admin socket event.
+  - Per-message isolation inside an entry batch: one bad message cannot abort the
+    rest of the webhook payload.
+  - Top-level failure path writes a systemEvent (whatsapp degraded), notifies
+    admins (SYSTEM_ALERT) and reports the error — operators are never blind.
+  - webhookLimiter (300/min) is high enough that Meta retries pass.
+
+OUTBOUND + MESSAGING (apps/api/src/lib/whatsapp.ts, services/messaging.ts):
+  - sendText / sendButtons / sendList build messaging_product payloads and POST to
+    the configured Graph API phone-number messages endpoint with Bearer token;
+    truncated to WhatsApp limits (body 1024, button titles 20, list rows 24/72).
+  - waEnabled() gates sends when token/phoneNumberId are absent (no crash, logged).
+  - Every outbound send is logged to MessageLog with direction/type/status/content
+    (sent/failed) for the admin Messages tab.
+
+GAME ENGINE (apps/api/src/services/game.ts + session.service.ts + commands.ts):
+  - Phone = identity (getOrCreateUser), game flow start/join/category/number/
+    truth-dare/answer/finish/end/leave + invite resend + random pick.
+  - START welcome taught to new users; command registry accepts START /start NEW
+    play create + manage/status/help/cancel/end/leave/invite/categories/random/
+    join/contribute/report (commands.ts).
+  - Authoritative state lives on the Session row; every state transition is an
+    ATOMIC updateMany guarded by (sessionId + state + currentTurnUserId) so
+    concurrent/duplicate requests can never double-advance or corrupt the turn
+    (atomicJoin/atomicProposeCategory/atomicAcceptCategory/atomicSelectNumber/
+    atomicSelectTruthDare/atomicAnswerAndSwap/atomicFinishGame/atomicEndSession
+    and GameMove P2002 duplicate protection) — turn/session idempotency holds.
+  - Monetization gate: resolveBlockingGate pauses a player's turn; management
+    commands (manage/status/help/cancel/end/leave) remain available while gated;
+    a correct code verifies the gate, notifies the opponent, and resumes the turn
+    via resumeTurnAfterVerification -> promptNumberOrTap.
+  - Contribution/report flows are Redis TTL-backed and only active with no session.
+
+PRODUCTION RELIABILITY:
+  - workers/game.worker.ts: per-session invite-expiry + turn-timeout handling
+    (enqueued by the */5 session-sweep cron).
+  - services/recovery.ts: monetization gate recovery (expire/cancel stale PENDING
+    gates), stuck-notification recovery, stuck-session safety net, processedEvent
+    + joblog retention cleanup.
+  - services/notification.worker.ts: claim->send->settle with permanent-vs-
+    transient branch (transient failures re-throw for BullMQ retry; recovery cron
+    reconciles long-stuck rows).
+  - All scheduled tasks run under Redis distributed locks (guardedCron + withLock)
+    so duplicate instances can never double-fire.
+
+--------------------------------------------------------------------------------
+3. AUDIT — WHATSAPP ADMIN (APPS/API + APPS/WEB)
+--------------------------------------------------------------------------------
+The admin console (apps/web/src/app/admin/whatsapp/page.tsx + routes/admin/
+whatsapp.ts) is complete with six tabs:
+
+  Overview      - connection status (live Graph API check), phone info, inbound/
+                  outbound totals, active sessions, config source, Test Send.
+  Credentials   - masked access token / app secret (maskSecret never returns
+                  secrets), phone number ID, business account ID, app ID, graph
+                  version, API base, webhook verify token; PUT is audited
+                  (WHATSAPP_CONFIG_UPDATE) and only writes non-empty fields.
+  Webhook       - webhook URL + verify token display with copy buttons, graph
+                  version, regenerate verify token (audited WEBHOOK_TOKEN_REGENERATE),
+                  Meta dashboard setup steps.
+  Templates     - READ-ONLY, Meta is the source of truth: Sync from Meta button
+                  (POST /templates/sync, audited TEMPLATES_SYNCED) pulls
+                  {businessAccountId}/message_templates via the Graph API and
+                  upserts locally by waTemplateId (idempotent). No local template
+                  create/edit/submit — provisioning happens on Meta.
+  Messages      - paginated message log with direction/status/phone filters and
+                  masked phone display.
+  Sessions      - paginated game sessions by status with host/joiner/category/
+                  moves; session detail with full move list.
+
+Connection/config masking and all admin mutations are audit-logged. Provider
+credentials/configuration values never reach the frontend.
+
+--------------------------------------------------------------------------------
+4. AUDIT — MONETIZATION GATE + PROVIDER-AGNOSTIC INTEGRATION
+--------------------------------------------------------------------------------
+The verification-gate monetization flow (from Phase 13) is wired into the bot
+without changing the game rules: getOrCreateGate / resolveBlockingGate /
+verifyGateCode / requestVerificationCode live in services/monetization.ts and are
+reused by both the WhatsApp engine and the public /monetize/:token page.
+
+The gate's provider is resolved through the provider-agnostic system: selectAdsForGate
+prefers a provider assigned to a WHATSAPP_VERIFICATION/GATE AdPlacement, else the
+default/first enabled provider serving the GATE placement. There is NO hard-coded
+Adsterra/PropellerAds/Google logic in the WMS gate — provider selection is
+admin-managed (Phase 13 /api/admin/ads/* + /admin/ads).
+
+Revenue trust model preserved: ESTIMATED vs CONFIRMED. Confirmed figures come only
+from confirmed RevenueLedger rows / validated callbacks; browser-only claims and
+impression/click events never fabricate confirmed revenue. No provider rates are
+hard-coded.
+
+--------------------------------------------------------------------------------
+5. COMPLETION CLOSED THIS PHASE (OPERATOR GAP)
+--------------------------------------------------------------------------------
+Gap: operators had no admin view of the deployed PLAYER entry point that actually
+drives the floating START button and the wa.me invites — the public
+"whatsapp.number" setting — or whether monetization is live, without switching to
+the generic Settings screen.
+
+Fix (build-only, no new dependency, no scope expansion):
+  apps/api/src/routes/admin/whatsapp.ts (GET /api/admin/whatsapp/status):
+    - reads the whatsapp.number public setting and returns botNumber,
+    - derives publicStartLink (wa.me/<number>?text=START),
+    - reads monetization.enabled and returns monetizationEnabled, alongside the
+      existing config/connection/stats/webhookUrl fields.
+  apps/web/src/app/admin/whatsapp/page.tsx (Overview tab):
+    - new "Player Entry Point" card showing the bot number, monetization
+      on/off state, and a copyable prefilled START link (cleared hint when
+      whatsapp.number is unset).
+
+--------------------------------------------------------------------------------
+6. SECURITY DECISIONS
+--------------------------------------------------------------------------------
+- X-Hub-Signature-256 webhook verification stays mandatory when
+  WHATSAPP_APP_SECRET is configured (timing-safe, raw-body based); absence emits a
+  boot warning in requireEnv.
+- Bot/caller number (whatsapp.number) is a deliberately PUBLIC setting (it must be
+  visible to players to build wa.me links); it is returned read-only to admins and
+  never treated as a secret. No credential is ever returned by any status/config
+  endpoint (tokens/secrets always masked).
+- Admin mutations (config update, token regeneration, template sync, test send)
+  remain audit-logged; admin routes stay behind the admin JWT + role gate.
+- No secrets were added to the repository.
+
+--------------------------------------------------------------------------------
+7. TYPE / BUILD VERIFICATION (BUILD-ONLY)
+--------------------------------------------------------------------------------
+All three workspaces typecheck clean after this phase:
+  packages/db  : tsc -p tsconfig.json --noEmit  -> 0 errors (client already generated)
+  apps/api     : tsc -p tsconfig.json --noEmit  -> 0 errors
+  apps/web     : tsc --noEmit                  -> 0 errors
+No tests, no server startup, no runtime/live/Meta/Google-AI/ad-network/WhatsApp/
+DB/Redis verification was performed.
+
+--------------------------------------------------------------------------------
+8. DATABASE / MIGRATION NOTES
+--------------------------------------------------------------------------------
+No schema changes were introduced by Phase 14. Pending migrations from earlier
+phases still require a database to be generated/applied:
+  1. Phase 12: Contribution.userPhone -> String?  (anonymous contributions)
+  2. Phase 13: AdPlacement table + AdProvider revenue fields (provider-agnostic ads)
+No DATABASE_URL was available during this build-only run, so no migration was
+created or fabricated; `prisma generate` remains valid.
+
+--------------------------------------------------------------------------------
+9. FILES CREATED / MODIFIED
+--------------------------------------------------------------------------------
+Created:
+  PHASE14RESULT.TXT
+
+Modified:
+  apps/api/src/routes/admin/whatsapp.ts  (status: + botNumber, publicStartLink,
+                                          monetizationEnabled)
+  apps/web/src/app/admin/whatsapp/page.tsx (Overview: Player Entry Point card +
+                                          status type fields)
+
+(No WhatsApp files were removed; no product scope was expanded.)
+
+--------------------------------------------------------------------------------
+10. CONFIGURATION / ENVIRONMENT REQUIREMENTS
+--------------------------------------------------------------------------------
+- DATABASE_URL + Redis required at runtime (not available in this build-only run).
+- WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN set, plus
+  WHATSAPP_APP_SECRET to enforce webhook signature verification (recommended).
+- whatsapp.number public setting (seed / admin Settings) surfaces the floating
+  START button and wa.me invites; monetization.enabled toggles the gate.
+- Apply pending migrations (above) against a real database before runtime.
+
+--------------------------------------------------------------------------------
+11. KNOWN LIMITATIONS
+--------------------------------------------------------------------------------
+- End-to-end behavior against a real Meta/WhatsApp account was not exercised
+  (no live tests per BUILD-ONLY contract).
+- The API/provider adapter performs no live network fetch; verified via typecheck
+  only. Confirm connection + template sync through the admin console at runtime.
+- Full runtime behavior requires applying the pending migrations and starting
+  Redis + the API/worker processes.
+
+================================================================================
+PHASE 14 WAS BUILD ONLY.
+NO TESTING WAS PERFORMED.
+NO RUNTIME TESTS WERE PERFORMED.
+NO WHATSAPP TESTS WERE PERFORMED.
+NO GOOGLE AI TESTS WERE PERFORMED.
+NO AD NETWORK TESTS WERE PERFORMED.
+NO LIVE EXTERNAL-SERVICE TESTS WERE PERFORMED.
+================================================================================

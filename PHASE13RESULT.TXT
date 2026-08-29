@@ -1,0 +1,276 @@
+================================================================================
+PHASE 13 RESULT (v2) — PROVIDER-AGNOSTIC AD NETWORK & MONETIZATION
+Project: 400QUES monorepo (packages/db, apps/api, apps/web)
+Date: 2026-08-29
+Mode: BUILD ONLY
+================================================================================
+
+PHASE 13 WAS BUILD ONLY.
+NO TESTING WAS PERFORMED.
+NO RUNTIME TESTS WERE PERFORMED.
+NO WHATSAPP TESTS WERE PERFORMED.
+NO GOOGLE AI TESTS WERE PERFORMED.
+NO LIVE AD NETWORK TESTS WERE PERFORMED.
+NO LIVE EXTERNAL-SERVICE TESTS WERE PERFORMED.
+
+--------------------------------------------------------------------------------
+1. GOAL
+--------------------------------------------------------------------------------
+Reintroduce a provider-AGNOSTIC advertising/monetization system so 400QUES can
+serve ads from DIFFERENT advertising providers without being tied to a single
+one. The platform depends on an AD PROVIDER INTERFACE, not on any specific
+provider (no hard-coded Adsterra/PropellerAds/Google/etc. implementation).
+Admins configure providers and assign them to placements without code changes.
+
+Scope is strictly monetization: AD PROVIDERS + AD PLACEMENTS + AD DELIVERY +
+AD EVENTS + MONETIZATION INTEGRATION + REVENUE ATTRIBUTION + SIMPLE ADMIN
+MANAGEMENT. Campaign management, marketing automation, badges, leaderboards,
+public profiles, user accounts, broadcasts, and internal ad-creative
+management are NOT restored.
+
+--------------------------------------------------------------------------------
+2. CRITICAL ARCHITECTURAL RULE
+--------------------------------------------------------------------------------
+Application code (game, contribution, WhatsApp, website, analytics) interacts
+ONLY with the AdAdapter interface. Individual providers are adapters in a
+registry selected by the provider's stored "type". Adding a provider later
+requires: (1) creating its adapter, (2) registering it, (3) configuring it in
+admin. It does NOT require rewriting game/contribution/WhatsApp/monetization
+logic, public pages, or analytics.
+
+--------------------------------------------------------------------------------
+3. PROVIDER TYPES (ADAPTER LAYER)
+--------------------------------------------------------------------------------
+Generic provider types (capability model, extensible):
+  SCRIPT         raw HTML/JS tag injected inline
+  DIRECT_LINK    plain sponsored destination URL
+  REDIRECT       step/redirect to an external destination
+  SNIPPET        self-contained inline HTML snippet
+  API            provider endpoint (no-op fetch in build-only; fallback HTML)
+  CPA            cost-per-action; drives conversion/verification, then credits
+  VERIFICATION   unlocks an in-app verification gate
+  OTHER          passthrough with verbatim configuration
+
+Each adapter exposes: render(provider, placement, placementCtx),
+validateCallback (token/HMAC-SHA256, optional), validateConfig
+
+--------------------------------------------------------------------------------
+4. ADAPTER ARCHITECTURE — apps/api/src/services/ad-providers/
+--------------------------------------------------------------------------------
+types.ts      AdProviderTypes, AdPlacements (keys), AdEventTypes, AdProviderRecord,
+              AdAdapter, RenderResult, PlacementContext, CallbackInput,
+              CallbackValidation, PlacementServeResult, ConfigCheckResult.
+registry.ts   Generic adapters per provider type; getAdapter(type) factory,
+              supportedTypes(), providerServesPlacement(record, placement),
+              shared validateBySecret (token / HMAC-SHA256 of raw body),
+              HMAC + escape helpers. New provider types are added here only.
+serve.ts      servePlacement(placement, limit) driven by the AdPlacement table:
+                - honors the global monetization.enabled switch
+                - serves enabled placements assigned to enabled, non-archived
+                  providers
+                - priority / random rotation (from settings)
+                - records an IMPRESSION event with provider + placement
+                - passes per-placement ctx (providerPlacementId, format) so a
+                  placement can override the destination/zone/link
+                - returns public-safe renders (never credentials)
+callbacks.ts  handleProviderCallback(providerId, input): 404 if missing/archived,
+              adapter.validate, record CALLBACK event, dedupe via
+              processedEvent (key "ad-callback:{providerId}:{eventType}:{ref}",
+              P2002 safe), and for CONVERSION/VERIFICATION postbacks promotes
+              pending ESTIMATED ledger rows to confirmed.
+index.ts      Barrel.
+
+--------------------------------------------------------------------------------
+5. DATABASE MODEL — packages/db/prisma/schema.prisma
+--------------------------------------------------------------------------------
+Existing models reused: AdProvider, AdSnippet, MonetizationGate,
+MonetizationEvent, RevenueLedger.
+
+AdPlacement (NEW — dedicated placement-management model):
+  id, key (unique, e.g. WEB_CONTRIBUTION / WHATSAPP_VERIFICATION),
+  name?, description?,
+  providerId -> AdProvider (onDelete: SetNull),            provider assignment
+  providerPlacementId?   (provider zone/slot/destination/link)
+  format?               (capability; defaults to provider type)
+  enabled, priority, createdAt, updatedAt
+  relations: AdProvider.placementAssignments AdPlacement[]
+  indexes: key, providerId, [enabled, priority]
+
+AdProvider extended with the `placementAssignments AdPlacement[]` relation and
+revenue config (revenueModel CPM/CPC/CPA/FIXED, currency, cpmRate/cpcRate/
+cpaRate/fixedPayoutPerVerification). All monetary rates entered by admins are
+ESTIMATED only; confirmed figures come solely from confirmed RevenueLedger rows.
+
+MonetizationEvent already carries providerId + placement attribution.
+RevenueLedger already carries providerId + isEstimated + status.
+
+MIGRATIONS: Pending. The environment has no DATABASE_URL / DB, so no migration
+was applied or fabricated. `prisma generate` was run successfully (client
+regenerated) and schema.md changes are documented. A migration should be
+created against a real database before runtime.
+
+Schema cleanup (Phase 12 regression): removed obsolete `model Ad` and the
+obsolete `enum AdPlacement { HERO SIDEBAR INLINE }` — leftover internal
+"ad-creative management" that the spec forbids restoring. They were unused
+(no `prisma.ad` references) and blocked the new AdPlacement model name.
+
+--------------------------------------------------------------------------------
+6. API ENDPOINTS
+--------------------------------------------------------------------------------
+ADMIN (new router apps/api/src/routes/admin/ads.ts, mounted at /api/admin/ads;
+all provider/placement mutations write to the audit log; secrets redacted):
+
+  GET    /api/admin/ads/types                 providerTypes/placements/eventTypes
+  GET    /api/admin/ads/providers             list (redacted config) + pagination
+  POST   /api/admin/ads/providers             create provider
+  PUT    /api/admin/ads/providers/:id         update provider
+  PATCH  /api/admin/ads/providers/:id/status  enable/disable/archive
+  DELETE /api/admin/ads/providers/:id         safe delete (archive if history)
+  GET    /api/admin/ads/providers/:id/stats   per-provider performance/revenue
+  GET    /api/admin/ads/providers/:id/test-config  adapter config validation
+  GET    /api/admin/ads/placements            list placements + assigned provider
+  POST   /api/admin/ads/placements            create placement (unique key)
+  PUT    /api/admin/ads/placements/:id        update / reassign provider
+  DELETE /api/admin/ads/placements/:id        safe delete (disable if history)
+  GET    /api/admin/ads/performance           placements x providers performance
+
+PUBLIC (apps/api/src/routes/public.ts, mounted at /api/public/ads):
+  GET  /api/public/ads/meta                   { enabled, types } (no credentials)
+  GET  /api/public/ads/placement/:placement   serve ads for a placement
+  POST /api/public/ads/events                 IMPRESSION/CLICK/CONVERSION
+                                               (idempotent via processedEvent,
+                                                attributes ESTIMATED revenue)
+
+PROVIDER CALLBACKS (generic, apps/api/src/routes/callbacks.ts, mounted at
+/api/webhooks/ads/:providerId):
+  POST /api/webhooks/ads/:providerId          provider postback, idempotent
+
+(Existing /api/admin/monetization/* provider + revenue endpoints remain for
+backward compatibility; the new /api/admin/ads/* namespace is the canonical
+provider/placement management surface.)
+
+--------------------------------------------------------------------------------
+7. AD EVENT TRACKING
+--------------------------------------------------------------------------------
+Generic events: IMPRESSION, CLICK, CONVERSION, VERIFICATION, CALLBACK (+ other
+string types permitted). Events are attributable to provider, placement,
+provider event/reference id, session, gate, timestamp, and metadata. The
+browser-reported IMPRESSION/CLICK/CONVERSION endpoints are idempotent per
+event id. Anonymous users stay anonymous (no personal info collected).
+
+--------------------------------------------------------------------------------
+8. REVENUE INTEGRATION
+--------------------------------------------------------------------------------
+Existing RevenueLedger is preserved as the source of confirmed revenue.
+recordProviderChannelRevenue attributes ESTIMATED revenue for CPM impressions
+and CPC clicks (clearly marked isEstimated=true); CPA/FIXED rely on
+verification / validated conversion callbacks. Confirmed revenue is only
+promoted from pending estimated rows via callbacks — never fabricated from an
+impression/click. Provider-agnostic: no provider-specific rate is hard-coded.
+
+--------------------------------------------------------------------------------
+9. WHATSAPP MONETIZATION INTEGRATION (REQUIREMENT 10)
+--------------------------------------------------------------------------------
+The WhatsApp game/bot flow is UNCHANGED. The verification gate remains the
+core monetization flow. selectAdsForGate now resolves the gate's provider
+through the generic system: it prefers a provider assigned to a
+WHATSAPP_VERIFICATION/GATE placement in the AdPlacement table, else falls back
+to the default provider / a provider that serves the GATE placement. The
+provider is replaceable without changing game logic.
+
+--------------------------------------------------------------------------------
+10. ADMIN UI — /admin/ads (apps/web/src/app/admin/ads/page.tsx)
+--------------------------------------------------------------------------------
+New admin page with three tabs (design system reused):
+  Providers  - table (name, type, revenue model, priority, enabled switch,
+               delete) + Add/Edit dialog (type, description, revenue model
+               CPM/CPC/CPA/FIXED, currency, rates, priority, config JSON).
+               Provider config secrets are NEVER returned by the API.
+  Placements - table (placement key, assigned provider, format, zone/link,
+               enabled switch) + Add/Edit dialog (key with known-key picker,
+               provider select, zone/link, format, priority). Assign
+               different providers to different placements.
+  Performance- summary cards + per-placement and per-provider tables
+               (impressions, clicks, conversions, CTR, estimated/confirmed
+               revenue). Answers "Which provider/placement is making money?"
+Nav: added "Ad Providers" (/admin/ads) under the Monetization group.
+
+Public web integration (minimal, no clutter):
+  apps/web/src/components/ad/ad-placement.tsx - AdPlacement/AdClickable client
+  Integrated into the anonymous Contribute page (CONTRIBUTION_PAGE) and the
+  Category page (CATEGORY_PAGE). Contribution flow stays simple
+  QUESTION / CATEGORY / OPTIONAL PHONE / SUBMIT.
+
+--------------------------------------------------------------------------------
+11. SECURITY DECISIONS
+--------------------------------------------------------------------------------
+- Provider credentials/configuration stored server-side (AdProvider.configuration).
+- Public endpoints, placement/event endpoints, browser components, and
+  analytics never return secrets (redactConfig masks secret keys).
+- Admin responses redact secrets (redactProvider).
+- Provider callbacks validated via token / HMAC-SHA256 and made idempotent.
+- test-config validates without leaking secrets.
+- All admin provider/placement mutations write audit-log records.
+- Deployment-level credentials should live in env vars; DB configuration only
+  for provider-specific configurable values. No credentials are committed.
+
+--------------------------------------------------------------------------------
+12. FILES CREATED / MODIFIED / REMOVED
+--------------------------------------------------------------------------------
+Created:
+  apps/api/src/services/ad-providers/types.ts
+  apps/api/src/services/ad-providers/registry.ts
+  apps/api/src/services/ad-providers/serve.ts
+  apps/api/src/services/ad-providers/callbacks.ts
+  apps/api/src/services/ad-providers/index.ts
+  apps/api/src/routes/admin/ads.ts            (/api/admin/ads/*)
+  apps/web/src/app/admin/ads/page.tsx       (/admin/ads)
+  apps/web/src/components/ad/ad-placement.tsx
+  PHASE13RESULT.TXT
+
+Modified:
+  packages/db/prisma/schema.prisma   (AdPlacement model; AdProvider relation;
+                                      removed obsolete model Ad + enum AdPlacement)
+  apps/api/src/services/monetization.ts (recordEvent provider/placement;
+                                      selectAdsForGate placement-aware)
+  apps/api/src/services/revenue.ts   (recordProviderChannelRevenue estimated)
+  apps/api/src/routes/public.ts      (ads meta/placement/events + estimated rev)
+  apps/api/src/routes/admin/index.ts (mount /ads router)
+  apps/api/src/app.ts                (mount adCallbackRouter)
+  apps/web/src/app/admin/layout.tsx  (nav item "Ad Providers")
+  apps/web/src/app/admin/monetization/page.tsx (provider form/table/perf card)
+  apps/web/src/app/(public)/contribute/page.tsx       (CONTRIBUTION_PAGE)
+  apps/web/src/app/(public)/categories/[slug]/page.tsx (CATEGORY_PAGE)
+
+Removed (obsolete Phase 12 regression):
+  model Ad + enum AdPlacement (HERO/SIDEBAR/INLINE) from schema (dead code)
+
+--------------------------------------------------------------------------------
+13. VERIFICATION (BUILD-TIME ONLY)
+--------------------------------------------------------------------------------
+- Prisma client regenerated successfully (prisma 5.22.0).
+- packages/db  : tsc build passes (dist emitted)
+- apps/api     : tsc --noEmit passes (no errors)
+- apps/web     : tsc --noEmit passes (no errors)
+No tests / no server / no WhatsApp / no Google AI / no live ad-network /
+no external-service runs were performed.
+
+--------------------------------------------------------------------------------
+14. CONFIGURATION / ENVIRONMENT REQUIREMENTS
+--------------------------------------------------------------------------------
+- DB schema requires a migration to be generated/applied against a real
+  database (PRISMA_MIGRATE) adding the AdPlacement table.
+- DATABASE_URL not available during this build-only run.
+- Provider secrets should be supplied via env/config when deployment-level;
+  provider-specific configurable values stored in AdProvider.configuration.
+
+--------------------------------------------------------------------------------
+15. KNOWN LIMITATIONS
+--------------------------------------------------------------------------------
+- API adapter performs no live network fetch (build-only; integration hook in
+  place, fallback HTML served).
+- End-to-end behavior against a real provider was not exercised (no live
+  provider tests).
+- Estimated revenue is attributed for CPM/CPC only; CPA/FIXED need callbacks.
+- Full runtime behavior requires applying the pending DB migration.
+================================================================================

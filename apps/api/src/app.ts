@@ -10,6 +10,7 @@ import { publicRouter } from "./routes/public";
 import { adminRouter } from "./routes/admin";
 import { webhookRouter } from "./routes/webhook";
 import { monetizationRouter } from "./routes/monetization";
+import { adCallbackRouter } from "./routes/callbacks";
 import { notFoundHandler, errorHandler } from "./middleware/error";
 import { requestIdMiddleware } from "./middleware/request-id";
 import { prisma } from "./lib/prisma";
@@ -66,6 +67,7 @@ export function createApp() {
   app.use("/api/public", publicRouter);
   app.use("/api/admin", adminRouter);
   app.use("/api/webhooks", webhookRouter);
+  app.use("/api/webhooks", adCallbackRouter);
   app.use("/api/monetization", monetizationRouter);
 
   app.get("/", (_req, res) => {

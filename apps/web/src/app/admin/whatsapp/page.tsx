@@ -45,6 +45,9 @@ type WhatsAppStatus = {
   source: "env" | "database";
   connection: { connected: boolean; phoneInfo?: { verifiedName?: string; displayPhoneNumber?: string }; error?: string };
   stats: { activeSessions: number; messagesInbound: number; messagesOutbound: number; totalMessages: number };
+  botNumber?: string;
+  publicStartLink?: string | null;
+  monetizationEnabled?: boolean;
   webhookUrl: string;
 };
 
@@ -339,6 +342,41 @@ export default function AdminWhatsAppPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Player entry point — the whatsapp.number public setting drives the
+              floating START button and the wa.me invites users actually see. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><Phone className="h-4 w-4" /> Player Entry Point</CardTitle>
+              <CardDescription>
+                The <span className="font-mono">whatsapp.number</span> public setting users message with START (or /start /new play /create). Set it under Settings if the floating button or invites show nothing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Bot Number</p>
+                  <p className={s?.botNumber ? "font-mono font-semibold" : "text-sm text-muted-foreground"}>{s?.botNumber || "— not set —"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Monetization</p>
+                  <span className={`inline-flex items-center gap-1 text-sm font-medium ${s?.monetizationEnabled ? "text-green-600" : "text-muted-foreground"}`}>
+                    {s?.monetizationEnabled ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                    {s?.monetizationEnabled ? "Enabled" : "Disabled"}
+                  </span>
+                </div>
+                {s?.publicStartLink && (
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-muted-foreground">Prefilled START link</p>
+                    <div className="flex items-center gap-2 truncate rounded-lg border bg-muted/50 px-3 py-2 font-mono text-xs">
+                      <span className="flex-1 truncate">{s.publicStartLink}</span>
+                      <CopyButton text={s.publicStartLink} id="start-link" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Test Send */}
           <Card>

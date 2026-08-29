@@ -6,6 +6,7 @@ import { validate, parsePagination } from "../../middleware/validate";
 import { ok, AppError } from "../../lib/response";
 import { type AdminRequest } from "../../middleware/auth";
 import { getMonetizationSettings, getMonetizationStats, recordEvent } from "../../services/monetization";
+import { getAdapter, listSupportedProviderTypes, AdPlacements, AdEventTypes } from "../../services/adproviders";
 
 export const monetizationAdminRouter = Router();
 
@@ -101,7 +102,18 @@ const providerSchema = z.object({
     enabled: z.boolean().default(true),
     priority: z.number().int().min(0).max(100000).default(100),
     configuration: z.record(z.string(), z.unknown()).optional(),
+    placements: z.array(z.string().min(1).max(64)).optional(),
+    revenueModel: z.enum(["CPM", "CPC", "CPA", "FIXED"]).optional().default("CPA"),
+    currency: z.string().max(8).optional().default("USD"),
+    cpmRate: z.number().min(0).max(1000000).optional().default(0),
+    cpcRate: z.number().min(0).max(1000000).optional().default(0),
+    cpaRate: z.number().min(0).max(1000000).optional().default(0),
+    fixedPayoutPerVerification: z.number().min(0).max(1000000).optional().default(0),
   }),
+});
+
+monetizationAdminRouter.get("/types", async (_req, res) => {
+  res.json(ok({ providerTypes: listSupportedProviderTypes(), placements: AdPlacements, eventTypes: AdEventTypes }));
 });
 
 monetizationAdminRouter.get("/providers", async (req, res) => {
@@ -139,6 +151,13 @@ monetizationAdminRouter.post("/providers", validate(providerSchema), async (req,
       enabled: body.enabled,
       priority: body.priority,
       configuration: (body.configuration ?? undefined) as Prisma.InputJsonValue | undefined,
+      placements: (body.placements ?? undefined) as Prisma.InputJsonValue | undefined,
+      revenueModel: body.revenueModel ?? "CPA",
+      currency: body.currency ?? "USD",
+      cpmRate: body.cpmRate ?? 0,
+      cpcRate: body.cpcRate ?? 0,
+      cpaRate: body.cpaRate ?? 0,
+      fixedPayoutPerVerification: body.fixedPayoutPerVerification ?? 0,
     },
   });
 
@@ -165,6 +184,13 @@ const providerUpdateSchema = z.object({
     enabled: z.boolean().optional(),
     priority: z.number().int().min(0).max(100000).optional(),
     configuration: z.record(z.string(), z.unknown()).optional(),
+    placements: z.array(z.string().min(1).max(64)).optional(),
+    revenueModel: z.enum(["CPM", "CPC", "CPA", "FIXED"]).optional(),
+    currency: z.string().max(8).optional(),
+    cpmRate: z.number().min(0).max(1000000).optional(),
+    cpcRate: z.number().min(0).max(1000000).optional(),
+    cpaRate: z.number().min(0).max(1000000).optional(),
+    fixedPayoutPerVerification: z.number().min(0).max(1000000).optional(),
   }),
 });
 
@@ -226,6 +252,105 @@ monetizationAdminRouter.patch("/providers/:id/status", validate(providerStatusSc
   await recordEvent("AD_PROVIDER_STATUS_CHANGED", { metadata: { name: existing.name, ...data } });
 
   res.json(ok(updated));
+});
+
+// ── Provider performance / revenue ──────────────────────────
+
+monetizationAdminRouter.get("/providers/:id/stats", async (req, res) => {
+  const { id } = req.params;
+  const provider = await prisma.adProvider.findUnique({ where: { id } });
+  if (!provider) throw new AppError(404, "Provider not found");
+
+  const [impressions, clicks, conversions, verifications, ledger, gates] = await Promise.all([
+    prisma.monetizationEvent.count({ where: { providerId: id, type: "IMPRESSION" } }),
+    prisma.monetizationEvent.count({ where: { providerId: id, type: "CLICK" } }),
+    prisma.monetizationEvent.count({ where: { providerId: id, type: "CONVERSION" } }),
+    prisma.monetizationEvent.count({ where: { providerId: id, type: "VERIFICATION" } }),
+    prisma.revenueLedger.findMany({ where: { providerId: id }, select: { status: true, isEstimated: true, revenueAmount: true, payoutAmount: true, eventType: true } }),
+    prisma.monetizationGate.count({ where: { providerId: id, status: GateStatus.VERIFIED } }),
+  ]);
+
+  const sum = (rows: { revenueAmount: number }[]) => rows.reduce((a, r) => a + r.revenueAmount, 0);
+  const estimated = ledger.filter((r) => r.isEstimated);
+  const confirmed = ledger.filter((r) => !r.isEstimated && r.status !== "rejected");
+  const paid = ledger.filter((r) => r.status === "paid");
+
+  const ctr = impressions ? Math.round((clicks / impressions) * 1000) / 10 : 0;
+
+  res.json(
+    ok({
+      providerId: id,
+      impressions,
+      clicks,
+      conversions,
+      verifications,
+      verifiedGates: gates,
+      ctr,
+      conversionRate: clicks ? Math.round((conversions / clicks) * 1000) / 10 : 0,
+      revenue: {
+        estimated: Math.round(sum(estimated) * 100) / 100,
+        confirmed: Math.round(sum(confirmed) * 100) / 100,
+        paid: Math.round(sum(paid) * 100) / 100,
+        payoutEstimated: Math.round(estimated.reduce((a, r) => a + r.payoutAmount, 0) * 100) / 100,
+      },
+      byEventType: [
+        ...new Set(ledger.map((r) => r.eventType)),
+      ].map((t) => ({ eventType: t, rows: ledger.filter((r) => r.eventType === t).length, amount: Math.round(sum(ledger.filter((r) => r.eventType === t)) * 100) / 100 })),
+    })
+  );
+});
+
+// ── Provider config validation (test-config) ────────────────
+
+monetizationAdminRouter.get("/providers/:id/test-config", async (req, res) => {
+  const { id } = req.params;
+  const provider = await prisma.adProvider.findUnique({ where: { id } });
+  if (!provider) throw new AppError(404, "Provider not found");
+  const adapter = getAdapter(provider.type);
+  const check = adapter.validateConfig({
+    id: provider.id,
+    name: provider.name,
+    type: provider.type,
+    description: provider.description,
+    enabled: provider.enabled,
+    archived: provider.archived,
+    priority: provider.priority,
+    configuration: provider.configuration,
+    placements: provider.placements,
+  });
+  res.json(ok(check));
+});
+
+// ── Provider deletion (safe) ────────────────────────────────
+
+monetizationAdminRouter.delete("/providers/:id", async (req, res) => {
+  const admin = (req as unknown as AdminRequest).admin;
+  const { id } = req.params;
+  const provider = await prisma.adProvider.findUnique({ where: { id } });
+  if (!provider) throw new AppError(404, "Provider not found");
+
+  const [ledgerCount, gateCount, eventCount] = await Promise.all([
+    prisma.revenueLedger.count({ where: { providerId: id } }),
+    prisma.monetizationGate.count({ where: { providerId: id } }),
+    prisma.monetizationEvent.count({ where: { providerId: id } }),
+  ]);
+
+  // Never hard-delete a provider that produced financial/attribution
+  // history — archive it instead to preserve the ledger.
+  if (ledgerCount > 0 || gateCount > 0 || eventCount > 0) {
+    await prisma.adProvider.update({ where: { id }, data: { archived: true } });
+    await prisma.auditLog.create({
+      data: { adminId: admin.id, action: "AD_PROVIDER_ARCHIVED", targetType: "ad_provider", targetId: id, details: { name: provider.name, reason: "delete_requested_has_history" } },
+    });
+    return res.json(ok({ archived: true, reason: "provider has history; archived instead of deleted" }));
+  }
+
+  await prisma.adProvider.delete({ where: { id } });
+  await prisma.auditLog.create({
+    data: { adminId: admin.id, action: "AD_PROVIDER_DELETED", targetType: "ad_provider", targetId: id, details: { name: provider.name } },
+  });
+  await recordEvent("AD_PROVIDER_DELETED", { metadata: { name: provider.name } });
+  res.json(ok({ deleted: true }));
 });
 
 // ── Ad Snippets ─────────────────────────────────────────────
@@ -412,6 +537,11 @@ const EVENT_TYPES = [
   "VERIFICATION_FAILED",
   "GATE_EXPIRED",
   "GATE_CANCELLED",
+  "IMPRESSION",
+  "CLICK",
+  "CONVERSION",
+  "VERIFICATION",
+  "CALLBACK",
 ] as const;
 
 monetizationAdminRouter.get("/events", async (req, res) => {
@@ -419,6 +549,8 @@ monetizationAdminRouter.get("/events", async (req, res) => {
   const rawType = req.query.type as string | undefined;
   const sessionId = req.query.sessionId as string | undefined;
   const userId = req.query.userId as string | undefined;
+  const providerId = req.query.providerId as string | undefined;
+  const placement = req.query.placement as string | undefined;
   const date = req.query.date as string | undefined;
 
   const type = rawType && (EVENT_TYPES as readonly string[]).includes(rawType) ? rawType : undefined;
@@ -427,6 +559,8 @@ monetizationAdminRouter.get("/events", async (req, res) => {
   if (type) where.type = type;
   if (sessionId) where.sessionId = sessionId;
   if (userId) where.userId = userId;
+  if (providerId) where.providerId = providerId;
+  if (placement) where.placement = placement;
   if (date) {
     const start = new Date(date);
     const end = new Date(start);
@@ -444,6 +578,7 @@ monetizationAdminRouter.get("/events", async (req, res) => {
       include: {
         user: { select: { id: true, phone: true, name: true } },
         session: { select: { id: true, inviteCode: true } },
+        provider: { select: { id: true, name: true } },
       },
     }),
   ]);

@@ -69,6 +69,7 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
     label: "Monetization",
     items: [
       { href: "/admin/monetization", label: "Monetization", icon: CreditCard },
+      { href: "/admin/ads", label: "Ad Providers", icon: Activity },
     ],
   },
   {

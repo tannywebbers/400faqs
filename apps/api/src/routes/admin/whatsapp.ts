@@ -27,6 +27,12 @@ whatsappRouter.get("/status", async (_req, res) => {
     prisma.messageLog.count({ where: { direction: "inbound" } }),
     prisma.messageLog.count({ where: { direction: "outbound" } }),
   ]);
+  const botNumberSetting = await prisma.setting.findUnique({ where: { key: "whatsapp.number" } });
+  const monetizationSetting = await prisma.setting.findUnique({ where: { key: "monetization.enabled" } });
+  const botNumber = botNumberSetting?.value ?? "";
+  const publicStartLink = botNumber
+    ? `https://wa.me/${botNumber.replace(/\D/g, "")}?text=${encodeURIComponent("START")}`
+    : null;
   res.json(
     ok({
       ...config,
@@ -37,6 +43,9 @@ whatsappRouter.get("/status", async (_req, res) => {
         messagesOutbound,
         totalMessages: messagesInbound + messagesOutbound,
       },
+      botNumber,
+      publicStartLink,
+      monetizationEnabled: ["1", "true", "yes", "on"].includes((monetizationSetting?.value ?? "").toLowerCase()),
       webhookUrl: getWebhookUrl(),
     })
   );

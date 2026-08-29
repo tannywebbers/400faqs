@@ -92,12 +92,6 @@ enum CategoryRequestStatus {
   REJECTED
 }
 
-enum AdPlacement {
-  HERO
-  SIDEBAR
-  INLINE
-}
-
 enum NotificationType {
   SUBMISSION
   APPROVED
@@ -434,24 +428,6 @@ model Setting {
   updatedAt   DateTime @updatedAt
 }
 
-model Ad {
-  id        String      @id @default(cuid())
-  title     String
-  subtitle  String?
-  imageUrl  String?
-  linkUrl   String?
-  placement AdPlacement @default(HERO)
-  status    Boolean     @default(true)
-  order     Int         @default(0)
-  startsAt  DateTime?
-  endsAt    DateTime?
-  clicks    Int         @default(0)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-
-  @@index([placement, status])
-}
-
 model Badge {
   id          String   @id @default(cuid())
   name        String
@@ -617,6 +593,9 @@ model AdProvider {
   archived      Boolean               @default(false)
   priority      Int                   @default(100)
   configuration Json?
+  // Placement keys this provider is eligible to serve on the website
+  // (e.g. ["HOME_INLINE", "FAQ_BOTTOM"]). Free-form, provider-agnostic.
+  placements    Json?
   // Optional revenue configuration. All monetary values below are ESTIMATED
   // (rates entered by admins); confirmed figures only ever come from
   // confirmed RevenueLedger rows — never fabricated.
@@ -632,9 +611,11 @@ model AdProvider {
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
 
-  snippets AdSnippet[]
-  gates    MonetizationGate[]
-  ledger   RevenueLedger[]
+  snippets      AdSnippet[]
+  placementAssignments AdPlacement[]
+  gates         MonetizationGate[]
+  events        MonetizationEvent[]
+  ledger        RevenueLedger[]
 
   @@index([enabled, archived, priority])
 }
@@ -655,6 +636,34 @@ model AdSnippet {
   updatedAt  DateTime    @updatedAt
 
   @@index([enabled, archived, placement, priority])
+}
+
+// A monetization "placement": WHERE an ad/action is shown. A placement is
+// assigned (0..1) to an enabled provider, so admins can route different
+// placements to different providers without any code changes
+// (e.g. Provider A -> WEB_CONTRIBUTION, Provider B -> WHATSAPP_VERIFICATION).
+model AdPlacement {
+  id          String      @id @default(cuid())
+  // Stable machine key, e.g. "WEB_CONTRIBUTION", "WHATSAPP_VERIFICATION".
+  key         String      @unique
+  name        String?
+  description String?
+  // The provider assigned to this placement (optional until configured).
+  providerId  String?
+  provider    AdProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  // Provider-specific placement/zone/destination identifier, where relevant
+  // (e.g. an Adsterra zone id, an AdSense slot name, or a direct link URL).
+  providerPlacementId String?
+  // Capability/format to serve (defaults to the provider's type).
+  format      String?
+  enabled     Boolean     @default(true)
+  priority    Int         @default(100)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([key])
+  @@index([providerId])
+  @@index([enabled, priority])
 }
 
 model MonetizationGate {
@@ -695,6 +704,14 @@ model MonetizationEvent {
   session   Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   userId    String?
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Ad unit that produced this event (impressions/clicks/conversions are
+  // attributed to a provider for provider-agnostic analytics). Never stores
+  // credentials — only the internal provider id.
+  providerId String?
+  provider   AdProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  // Website placement where the event occurred (e.g. CATEGORY_PAGE_RIGHT,
+  // HOME_INLINE, FAQ_BOTTOM). Free-form to remain provider-agnostic.
+  placement String?
   type      String
   status    String   @default("recorded")
   metadata  Json?
@@ -703,6 +720,8 @@ model MonetizationEvent {
   @@index([gateId])
   @@index([sessionId, createdAt])
   @@index([userId])
+  @@index([providerId, createdAt])
+  @@index([placement, createdAt])
   @@index([type, createdAt])
 }
 
