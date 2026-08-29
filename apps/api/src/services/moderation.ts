@@ -9,7 +9,7 @@ import { nextFreeNumber } from "../lib/questionNumber";
 import { logger } from "../lib/logger";
 
 export type SubmitContributionInput = {
-  userPhone: string;
+  userPhone: string | null;
   userId?: string;
   categoryId: string;
   question: string;
@@ -40,17 +40,19 @@ export async function submitContribution(input: SubmitContributionInput): Promis
 
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
-  const todayCount = await prisma.contribution.count({
-    where: { userPhone: input.userPhone, createdAt: { gte: dayStart } },
-  });
-  if (todayCount >= perDay) {
-    return {
-      ticket: "",
-      status: ContributionStatus.REJECTED,
-      message: `You have reached today's limit of ${perDay} contributions.`,
-      moderation: { ok: false, flagged: true, spam: false, profanity: false, gibberish: false, score: 0, reason: "Daily limit reached" },
-      duplicate: null,
-    };
+  if (input.userPhone) {
+    const todayCount = await prisma.contribution.count({
+      where: { userPhone: input.userPhone, createdAt: { gte: dayStart } },
+    });
+    if (todayCount >= perDay) {
+      return {
+        ticket: "",
+        status: ContributionStatus.REJECTED,
+        message: `You have reached today's limit of ${perDay} contributions.`,
+        moderation: { ok: false, flagged: true, spam: false, profanity: false, gibberish: false, score: 0, reason: "Daily limit reached" },
+        duplicate: null,
+      };
+    }
   }
 
   const category = await prisma.category.findFirst({ where: { id: input.categoryId, status: "ACTIVE" } });

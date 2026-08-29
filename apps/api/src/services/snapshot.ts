@@ -39,7 +39,7 @@ export async function captureAnalyticsSnapshot(force = false): Promise<void> {
   const [
     users, categories, questions, approvedQuestions, sessions, activeSessions, completedSessions,
     moves, contributions, approvedContributions, reports, categoryRequests, contactMessages, messageLogs,
-    revenue, campaigns, ads, todayUsers, todaySessions, todayMoves, todayContributions, todayMessages,
+    revenue, todayUsers, todaySessions, todayMoves, todayContributions, todayMessages,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.category.count(),
@@ -56,8 +56,6 @@ export async function captureAnalyticsSnapshot(force = false): Promise<void> {
     prisma.contactMessage.count(),
     prisma.messageLog.count(),
     prisma.revenueLedger.count(),
-    prisma.campaign.count(),
-    prisma.ad.count({ where: { status: true } }),
     prisma.user.count({ where: { createdAt: { gte: startOfDay } } }),
     prisma.session.count({ where: { createdAt: { gte: startOfDay } } }),
     prisma.gameMove.count({ where: { createdAt: { gte: startOfDay } } }),
@@ -88,8 +86,6 @@ export async function captureAnalyticsSnapshot(force = false): Promise<void> {
       revenue: revenue + 0,
       revenueAmount: revenueAgg._sum.revenueAmount ?? 0,
       payoutAmount: revenueAgg._sum.payoutAmount ?? 0,
-      campaigns,
-      ads,
     },
     day: {
       users: todayUsers,

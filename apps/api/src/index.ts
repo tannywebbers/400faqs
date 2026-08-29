@@ -49,40 +49,19 @@ async function main() {
     });
   });
 
-  // Cron: promote due scheduled campaigns every minute
-  cron.schedule("* * * * *", () => {
-    guardedCron("campaign-advance", async () => {
-      const { advanceDueCampaigns } = await import("./services/campaign");
-      const due = await advanceDueCampaigns();
-      if (due > 0) logger.info("[cron] advanced due campaigns", { count: due });
-    });
-  });
-
   // Cron: reliability recovery sweep every 5 minutes — reconciles stale
-  // monetization gates, stuck notification/delivery rows and sessions that
+  // monetization gates, stuck notification rows and sessions that
   // slipped past the per-session worker sweep.
   cron.schedule("*/5 * * * *", () => {
     guardedCron("recovery", async () => {
-      const { recoverMonetization, recoverStuckNotifications, recoverStuckCampaignDeliveries, recoverStuckSessions } = await import("./services/recovery");
-      const [monetization, notifications, deliveries, sessions] = await Promise.all([
+      const { recoverMonetization, recoverStuckNotifications, recoverStuckSessions } = await import("./services/recovery");
+      const [monetization, notifications, sessions] = await Promise.all([
         recoverMonetization(),
         recoverStuckNotifications(),
-        recoverStuckCampaignDeliveries(),
         recoverStuckSessions(),
       ]);
-      if (monetization.expired + monetization.cancelled + notifications + deliveries + sessions > 0) {
-        logger.info("[cron] recovery sweep", { monetization, notifications, deliveries, sessions });
-      }
-    });
-  });
-
-  // Cron: ensure a broadcast chain exists whenever WhatsApp notifications are
-  // still queued but no worker picked them up (e.g. restart lost the chain).
-  cron.schedule("*/5 * * * *", () => {
-    guardedCron("broadcast-resume", async () => {
-      const pending = await prisma.notification.count({ where: { channel: "WHATSAPP", status: { in: ["PENDING", "SENDING"] } } });
-      if (pending > 0) {
-        await enqueue("notification", "broadcast", {}, { attempts: 1, jobId: "broadcast-chain" });
+      if (monetization.expired + monetization.cancelled + notifications + sessions > 0) {
+        logger.info("[cron] recovery sweep", { monetization, notifications, sessions });
       }
     });
   });

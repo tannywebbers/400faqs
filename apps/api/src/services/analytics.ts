@@ -50,7 +50,6 @@ export type DashboardStats = {
     categoryRequests: number;
     pendingCategoryRequests: number;
     contactMessages: number;
-    ads: number;
   };
   today: {
     questions: number;
@@ -73,7 +72,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const [
     users, categories, questions, pendingQuestions, approvedQuestions, rejectedQuestions,
     sessions, activeSessions, completedSessions, moves, contributions, pendingContributions,
-    reports, openReports, categoryRequests, pendingCategoryRequests, contactMessages, ads,
+    reports, openReports, categoryRequests, pendingCategoryRequests, contactMessages,
     todayQuestions, todaySessions, todayContributions, todayUsers,
   ] = await Promise.all([
     prisma.user.count(),
@@ -93,7 +92,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     prisma.categoryRequest.count(),
     prisma.categoryRequest.count({ where: { status: "PENDING" } }),
     prisma.contactMessage.count({ where: { status: "new" } }),
-    prisma.ad.count({ where: { status: true } }),
     prisma.question.count({ where: { createdAt: { gte: startOfDay } } }),
     prisma.session.count({ where: { createdAt: { gte: startOfDay } } }),
     prisma.contribution.count({ where: { createdAt: { gte: startOfDay } } }),
@@ -126,7 +124,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     totals: {
       users, categories, questions, pendingQuestions, approvedQuestions, rejectedQuestions,
       sessions, activeSessions, completedSessions, moves, contributions, pendingContributions,
-      reports, openReports, categoryRequests, pendingCategoryRequests, contactMessages, ads,
+      reports, openReports, categoryRequests, pendingCategoryRequests, contactMessages,
     },
     today: { questions: todayQuestions, sessions: todaySessions, contributions: todayContributions, users: todayUsers },
     recentActivity,
@@ -250,14 +248,13 @@ type AdminSeriesPoint = {
   categoryRequests: number;
   messages: number;
   revenueLedger: number;
-  campaigns: number;
 };
 
 export async function getAdminAnalytics(from?: string, to?: string): Promise<AdminAnalytics> {
   const { start, end } = parseDateRange(from, to);
   const where = { createdAt: { gte: start, lte: end } };
 
-  const [users, questions, sessions, moves, contributions, reports, categoryRequests, messages, revenue, campaigns] = await Promise.all([
+  const [users, questions, sessions, moves, contributions, reports, categoryRequests, messages, revenue] = await Promise.all([
     prisma.user.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
     prisma.question.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
     prisma.session.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
@@ -267,7 +264,6 @@ export async function getAdminAnalytics(from?: string, to?: string): Promise<Adm
     prisma.categoryRequest.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
     prisma.messageLog.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
     prisma.revenueLedger.groupBy({ by: ["createdAt"], _count: { _all: true }, _sum: { revenueAmount: true, payoutAmount: true }, where }),
-    prisma.campaign.groupBy({ by: ["createdAt"], _count: { _all: true }, where }),
   ]);
 
   const maps = {
@@ -280,7 +276,6 @@ export async function getAdminAnalytics(from?: string, to?: string): Promise<Adm
     categoryRequests: countMap(categoryRequests as CountRow[]),
     messages: countMap(messages as CountRow[]),
     revenueLedger: countMap(revenue as CountRow[]),
-    campaigns: countMap(campaigns as CountRow[]),
   };
 
   const days = buildDaySeries(start, end);
@@ -296,7 +291,6 @@ export async function getAdminAnalytics(from?: string, to?: string): Promise<Adm
       categoryRequests: maps.categoryRequests.get(day) ?? 0,
       messages: maps.messages.get(day) ?? 0,
       revenueLedger: maps.revenueLedger.get(day) ?? 0,
-      campaigns: maps.campaigns.get(day) ?? 0,
     };
     return point;
   });
@@ -312,7 +306,6 @@ export async function getAdminAnalytics(from?: string, to?: string): Promise<Adm
     categoryRequests: sum(maps.categoryRequests),
     messages: sum(maps.messages),
     revenueLedger: sum(maps.revenueLedger),
-    campaigns: sum(maps.campaigns),
   };
 
   return {

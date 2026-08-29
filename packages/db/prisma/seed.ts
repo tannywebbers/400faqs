@@ -50,11 +50,6 @@ const DEFAULT_SETTINGS: SettingInput[] = [
   { key: "ai.model", value: "gemini-2.0-flash", type: "string", group: "ai", description: "Google AI model used for duplicate detection", public: false },
   { key: "ai.maxCandidates", value: "5", type: "number", group: "ai", description: "Max candidate questions sent to Google AI", public: false },
 
-  // ===== Marketing campaigns =====
-  { key: "campaign.autoProcess", value: "true", type: "boolean", group: "campaign", description: "Automatically process due campaigns (scheduled + recurring). Disable to run campaigns manually", public: false },
-  { key: "campaign.rateLimitPerMinute", value: "60", type: "number", group: "campaign", description: "Default WhatsApp message throughput cap per campaign (rate-limit protection)", public: false },
-  { key: "campaign.maxRecipients", value: "5000", type: "number", group: "campaign", description: "Hard cap on recipients resolved per campaign", public: false },
-
   // ===== Monetization revenue ledger =====
   { key: "monetization.revenuePerVerification", value: "0.25", type: "number", group: "monetization", description: "Recorded revenue per completed verification", public: false },
   { key: "monetization.payoutRate", value: "0.5", type: "number", group: "monetization", description: "Estimated payout share (0-1) passed to the ad provider", public: false },
@@ -66,10 +61,6 @@ const DEFAULT_SETTINGS: SettingInput[] = [
   // ===== Advanced analytics =====
   { key: "analytics.enabled", value: "true", type: "boolean", group: "analytics", description: "Enable the advanced admin analytics endpoints", public: false },
   { key: "analytics.retentionDays", value: "365", type: "number", group: "analytics", description: "Maximum age of source data surfaced by analytics (soft limit)", public: false },
-
-  // ===== Revenue estimation =====
-  { key: "revenue.estimationEnabled", value: "true", type: "boolean", group: "revenue", description: "Compute ESTIMATED revenue from provider rates + real activity", public: false },
-  { key: "revenue.estimationMode", value: "provider_rates", type: "string", group: "revenue", description: "provider_rates (per-provider rates) or flat (revenue per verification setting only)", public: false },
 
   // ===== Uploads =====
   { key: "uploads.maxSizeMB", value: "5", type: "number", group: "uploads", description: "Max screenshot upload size in MB", public: true },
@@ -99,15 +90,6 @@ const DEFAULT_SETTINGS: SettingInput[] = [
   { key: "about.vision", value: "A world where every WhatsApp chat can become a fun, engaging game in seconds.", type: "textarea", group: "about", description: "About page - vision", public: true },
 ];
 
-const DEFAULT_BADGES = [
-  { name: "First Question", slug: "first-question", description: "Contributed your first question", icon: "Award", color: "#2ECC71" },
-  { name: "Prolific Contributor", slug: "prolific-contributor", description: "Contributed 50 questions", icon: "Sparkles", color: "#2F80ED" },
-  { name: "Question Master", slug: "question-master", description: "Contributed 200 questions", icon: "Crown", color: "#F2994A" },
-  { name: "Community Champion", slug: "community-champion", description: "50 approved questions", icon: "HeartHandshake", color: "#9B51E0" },
-  { name: "Quality Guard", slug: "quality-guard", description: "Flagged 10 bad questions", icon: "ShieldCheck", color: "#EB5757" },
-  { name: "Category Founder", slug: "category-founder", description: "Requested a category that was approved", icon: "FolderPlus", color: "#56CCF2" },
-];
-
 async function main() {
   // ---- Settings ----
   for (const s of DEFAULT_SETTINGS) {
@@ -128,15 +110,6 @@ async function main() {
     update: { password: hash, name },
     create: { email, password: hash, name, role: Role.SUPER_ADMIN },
   });
-
-  // ---- Badges ----
-  for (const b of DEFAULT_BADGES) {
-    await prisma.badge.upsert({
-      where: { slug: b.slug },
-      update: {},
-      create: b,
-    });
-  }
 
   // ---- Initial system status event ----
   await prisma.systemEvent.create({

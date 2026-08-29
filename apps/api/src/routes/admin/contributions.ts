@@ -87,42 +87,12 @@ contributionsRouter.patch("/:id/review", validate(reviewSchema), async (req, res
       userId: existing.userId,
       aiScore: existing.aiScore,
     });
-    if (existing.userId) {
-      await awardBadges(existing.userId);
-    }
     await prisma.auditLog.create({ data: { adminId: admin.id, action: "APPROVE", targetType: "contribution", targetId: existing.id } });
   } else {
     await prisma.auditLog.create({ data: { adminId: admin.id, action: "REJECT", targetType: "contribution", targetId: existing.id, details: { status: body.status } } });
   }
   res.json(ok(updated));
 });
-
-async function awardBadges(userId: string) {
-  const approved = await prisma.contribution.count({ where: { userId, status: "APPROVED" } });
-  const contributions = await prisma.contribution.count({ where: { userId } });
-  const badges = await prisma.badge.findMany();
-  const toAward = badges.filter((b) => {
-    switch (b.slug) {
-      case "first-question":
-        return contributions >= 1;
-      case "prolific-contributor":
-        return contributions >= 50;
-      case "question-master":
-        return contributions >= 200;
-      case "community-champion":
-        return approved >= 50;
-      default:
-        return false;
-    }
-  });
-  for (const b of toAward) {
-    await prisma.userBadge.upsert({
-      where: { userId_badgeId: { userId, badgeId: b.id } },
-      update: {},
-      create: { userId, badgeId: b.id },
-    });
-  }
-}
 
 contributionsRouter.delete("/:id", async (req, res) => {
   const admin = (req as unknown as AdminRequest).admin;

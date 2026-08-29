@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import {
-  Users,
   FolderOpen,
   HelpCircle,
   PlayCircle,
@@ -100,7 +99,6 @@ export default function AdminDashboardPage() {
   const t = query.data?.totals;
 
   const statCards = [
-    { label: "Total Users", value: t?.users ?? 0, icon: Users, href: "/admin/users", accent: "brand" },
     { label: "Categories", value: t?.categories ?? 0, icon: FolderOpen, href: "/admin/categories", accent: "green" },
     { label: "Questions", value: t?.questions ?? 0, icon: HelpCircle, href: "/admin/questions", accent: "orange" },
     { label: "Active Sessions", value: t?.activeSessions ?? 0, icon: PlayCircle, href: "/admin/whatsapp", accent: "green" },

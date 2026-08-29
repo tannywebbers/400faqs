@@ -7,7 +7,6 @@ import { ok } from "../lib/response";
 import { getPublicSettings } from "../services/settings";
 import { getPublicStats } from "../services/analytics";
 import { getSystemStatus } from "../services/status";
-import { getLeaderboard } from "../services/leaderboard";
 import { submitContribution } from "../services/moderation";
 import { generateTicket } from "../lib/ticket";
 import { slugify } from "../lib/slugify";
@@ -216,7 +215,7 @@ publicRouter.get("/help-articles/:slug", async (req, res) => {
 
 const contributionSchema = z.object({
   body: z.object({
-    userPhone: z.string().min(8).max(20),
+    userPhone: z.string().min(8).max(20).optional().nullable(),
     categoryId: z.string().min(1),
     question: z.string().min(3).max(300),
     type: z.enum(["TRUTH", "DARE", "NORMAL"]).optional(),
@@ -228,9 +227,9 @@ publicRouter.post("/contributions", contributionLimiter, validate(contributionSc
   const category = await prisma.category.findFirst({ where: { id: body.categoryId, status: "ACTIVE" } });
   if (!category) throw new AppError(400, "Category not found");
 
-  const user = await prisma.user.findUnique({ where: { phone: body.userPhone } });
+  const user = body.userPhone ? await prisma.user.findUnique({ where: { phone: body.userPhone } }) : null;
   const outcome = await submitContribution({
-    userPhone: body.userPhone,
+    userPhone: body.userPhone ?? null,
     userId: user?.id,
     categoryId: body.categoryId,
     question: body.question,
@@ -249,6 +248,14 @@ publicRouter.get("/contributions/:ticket", async (req, res) => {
   if (ownerPhone && contribution.userPhone !== ownerPhone) throw new AppError(404, "Submission not found");
   res.json(ok({ ...contribution, userPhone: undefined, classification: duplicateClassification(contribution.aiResult) }));
 });
+
+function duplicateClassification(aiResult: unknown): string | null {
+  if (!aiResult || typeof aiResult !== "object") return null;
+  const dup = (aiResult as { duplicate?: { classification?: unknown } }).duplicate;
+  if (!dup || typeof dup !== "object") return null;
+  const cls = dup.classification;
+  return typeof cls === "string" ? cls : null;
+}
 
 const contributionStatuses = ["PENDING", "APPROVED", "REJECTED", "FLAGGED"] as const;
 
@@ -512,204 +519,6 @@ publicRouter.get("/category-requests", async (req, res) => {
   );
 });
 
-// ============================================================
-// Profile (phone-based user stats for the /app experience)
-// ============================================================
-
-publicRouter.get("/profile", async (req, res) => {
-  const phone = String(req.query.phone ?? "").trim();
-  if (!phone) throw new AppError(400, "phone query parameter is required");
-
-  const user = await prisma.user.findUnique({
-    where: { phone },
-    include: {
-      badges: { select: { awardedAt: true, badge: { select: { id: true, name: true, slug: true, icon: true, color: true } } } },
-    },
-  });
-
-  const [contributionCounts, reportCounts, categoryRequestCounts, recentContributions, recentReports, recentRequests] = await Promise.all([
-    prisma.contribution.groupBy({ by: ["status"], where: { userPhone: phone }, _count: { _all: true } }),
-    prisma.questionReport.groupBy({ by: ["status"], where: { reporterPhone: phone }, _count: { _all: true } }),
-    prisma.categoryRequest.groupBy({ by: ["status"], where: { requestorPhone: phone }, _count: { _all: true } }),
-    prisma.contribution.findMany({
-      where: { userPhone: phone },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: { id: true, ticket: true, question: true, status: true, categoryId: true, createdAt: true, aiResult: true, category: { select: { name: true } } },
-    }),
-    prisma.questionReport.findMany({
-      where: { reporterPhone: phone },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: { id: true, ticket: true, reason: true, status: true, createdAt: true },
-    }),
-    prisma.categoryRequest.findMany({
-      where: { requestorPhone: phone },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: { id: true, name: true, status: true, createdAt: true },
-    }),
-  ]);
-
-  const toCount = (rows: { status: string; _count: { _all: number } }[]) => {
-    const m: Record<string, number> = {};
-    for (const r of rows) m[r.status] = r._count._all;
-    return m;
-  };
-
-  res.json(
-    ok({
-      phone: maskPhone(phone),
-      user: user
-        ? {
-            displayName: user.displayName ?? user.name,
-            name: user.name,
-            language: user.language,
-            status: user.status,
-            totalSessions: user.totalSessions,
-            totalAnswered: user.totalAnswered,
-            totalAsked: user.totalAsked,
-            firstSeenAt: user.firstSeenAt,
-            lastSeenAt: user.lastSeenAt,
-          }
-        : null,
-      badges: user?.badges.map((b) => ({ ...b.badge, awardedAt: b.awardedAt })) ?? [],
-      contributionCounts: toCount(contributionCounts as unknown as { status: string; _count: { _all: number } }[]),
-      reportCounts: toCount(reportCounts as unknown as { status: string; _count: { _all: number } }[]),
-      categoryRequestCounts: toCount(categoryRequestCounts as unknown as { status: string; _count: { _all: number } }[]),
-      recent: {
-        contributions: recentContributions.map((c) => ({ id: c.id, ticket: c.ticket, question: c.question, status: c.status, categoryName: c.category.name, classification: duplicateClassification(c.aiResult), createdAt: c.createdAt })),
-        reports: recentReports.map((r) => ({ id: r.id, ticket: r.ticket, reason: r.reason, status: r.status, createdAt: r.createdAt })),
-        categoryRequests: recentRequests.map((r) => ({ id: r.id, name: r.name, status: r.status, createdAt: r.createdAt })),
-      },
-    })
-  );
-});
-
-function duplicateClassification(aiResult: unknown): string | null {
-  if (!aiResult || typeof aiResult !== "object") return null;
-  const dup = (aiResult as { duplicate?: { classification?: unknown } }).duplicate;
-  if (!dup || typeof dup !== "object") return null;
-  const cls = dup.classification;
-  return typeof cls === "string" ? cls : null;
-}
-
-function maskPhone(phone: string): string {
-  if (phone.length <= 6) return phone;
-  return phone.slice(0, 3) + "*****" + phone.slice(-2);
-}
-
-// ============================================================
-// Notifications (phone-based, for the /app experience)
-// ============================================================
-
-async function findUserByPhone(phone: string) {
-  return prisma.user.findUnique({ where: { phone }, select: { id: true, phone: true } });
-}
-
-function toNotificationView(n: {
-  id: string;
-  type: string;
-  channel: string;
-  status: string;
-  title: string;
-  message: string;
-  link: string | null;
-  readAt: Date | null;
-  createdAt: Date;
-}) {
-  return {
-    id: n.id,
-    type: n.type,
-    channel: n.channel,
-    status: n.status,
-    title: n.title,
-    message: n.message,
-    link: n.link,
-    read: Boolean(n.readAt),
-    createdAt: n.createdAt,
-  };
-}
-
-publicRouter.get("/notifications", async (req, res) => {
-  const { page, limit, skip } = parsePagination(req.query);
-  const phone = String(req.query.phone ?? "").trim();
-  if (!phone) throw new AppError(400, "phone query parameter is required");
-
-  const user = await findUserByPhone(phone);
-  if (!user) throw new AppError(404, "User not found");
-
-  const where = { userId: user.id, NOT: { channel: "SYSTEM" } };
-  const [total, items, unread] = await Promise.all([
-    prisma.notification.count({ where }),
-    prisma.notification.findMany({ where, orderBy: { createdAt: "desc" }, skip, take: limit }),
-    prisma.notification.count({ where: { ...where, readAt: null } }),
-  ]);
-
-  res.json(
-    ok(
-      items.map((n) => toNotificationView(n as Parameters<typeof toNotificationView>[0])),
-      { page, limit, total, totalPages: Math.ceil(total / limit), unread }
-    )
-  );
-});
-
-publicRouter.get("/notifications/unread-count", async (req, res) => {
-  const phone = String(req.query.phone ?? "").trim();
-  if (!phone) throw new AppError(400, "phone query parameter is required");
-  const user = await findUserByPhone(phone);
-  const count = user ? await prisma.notification.count({ where: { userId: user.id, readAt: null, NOT: { channel: "SYSTEM" } } }) : 0;
-  res.json(ok({ count }));
-});
-
-const notificationReadSchema = z.object({ body: z.object({ phone: z.string().min(8).max(20) }) });
-
-publicRouter.post("/notifications/:id/read", publicLimiter, validate(notificationReadSchema), async (req, res) => {
-  const body = (req as unknown as { validated: { body: z.infer<typeof notificationReadSchema.shape.body> } }).validated.body;
-  const user = await findUserByPhone(body.phone);
-  if (!user) throw new AppError(404, "User not found");
-
-  const existing = await prisma.notification.findUnique({ where: { id: req.params.id } });
-  if (!existing || existing.userId !== user.id) throw new AppError(404, "Notification not found");
-
-  const n = await prisma.notification.update({ where: { id: existing.id }, data: { readAt: new Date() } });
-  res.json(ok({ id: n.id, read: true }));
-});
-
-publicRouter.post("/notifications/read-all", publicLimiter, validate(notificationReadSchema), async (req, res) => {
-  const body = (req as unknown as { validated: { body: z.infer<typeof notificationReadSchema.shape.body> } }).validated.body;
-  const user = await findUserByPhone(body.phone);
-  if (!user) throw new AppError(404, "User not found");
-
-  const result = await prisma.notification.updateMany({
-    where: { userId: user.id, readAt: null, NOT: { channel: "SYSTEM" } },
-    data: { readAt: new Date() },
-  });
-  res.json(ok({ message: "All notifications marked as read", count: result.count }));
-});
-
-// ============================================================
-// Leaderboard / Search / Contact / Ads
-// ============================================================
-
-publicRouter.get("/leaderboard", async (req, res) => {
-  const limit = Math.min(Number(req.query.limit ?? 50), 100);
-  res.json(ok(await getLeaderboard(limit)));
-});
-
-publicRouter.get("/top-contributors", async (req, res) => {
-  const rows = await prisma.contribution.groupBy({
-    by: ["userPhone"],
-    where: { status: "APPROVED" },
-    _count: { _all: true },
-  });
-  const sorted = rows
-    .map((r) => ({ phone: r.userPhone.replace(/^(\d{3})\d+(\d{2})$/, "$1*****$2"), approved: r._count._all }))
-    .sort((a, b) => b.approved - a.approved)
-    .slice(0, 10);
-  res.json(ok(sorted));
-});
-
 publicRouter.get("/search", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
   if (!q) return res.json(ok({ categories: [], questions: [], articles: [] }));
@@ -740,28 +549,6 @@ publicRouter.post("/contact", publicLimiter, validate(contactSchema), async (req
     link: "/admin/contact",
   });
   res.json(ok({ message: "Message received. We'll get back to you soon." }));
-});
-
-publicRouter.get("/ads", async (req, res) => {
-  const placement = req.query.placement as string | undefined;
-  const now = new Date();
-  const ads = await prisma.ad.findMany({
-    where: {
-      status: true,
-      ...(placement ? { placement: placement as "HERO" | "SIDEBAR" | "INLINE" } : {}),
-      AND: [{ OR: [{ startsAt: null }, { startsAt: { lte: now } }] }, { OR: [{ endsAt: null }, { endsAt: { gte: now } }] }],
-    },
-    orderBy: { order: "asc" },
-    select: { id: true, title: true, subtitle: true, imageUrl: true, linkUrl: true, placement: true },
-  });
-  res.json(ok(ads));
-});
-
-publicRouter.post("/ads/:id/click", async (req, res) => {
-  const ad = await prisma.ad.findUnique({ where: { id: req.params.id }, select: { id: true } });
-  if (!ad) throw new AppError(404, "Ad not found");
-  await prisma.ad.update({ where: { id: req.params.id }, data: { clicks: { increment: 1 } } });
-  res.json(ok({ message: "ok" }));
 });
 
 publicRouter.post("/uploads", publicLimiter, upload.single("file"), async (req, res) => {

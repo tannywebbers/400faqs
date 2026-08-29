@@ -68,19 +68,6 @@ export async function recoverStuckNotifications(stuckMinutes = 15): Promise<numb
   return res.count;
 }
 
-// ── Campaign delivery recovery ───────────────────────────────
-// Resets deliveries stuck in "sending" (worker crash mid-send) back
-// to "queued" so the next dispatch batch picks them up.
-
-export async function recoverStuckCampaignDeliveries(stuckMinutes = 30): Promise<number> {
-  const cutoff = new Date(Date.now() - stuckMinutes * 60_000);
-  const res = await prisma.campaignDelivery.updateMany({
-    where: { status: "sending", updatedAt: { lt: cutoff } },
-    data: { status: "queued" },
-  });
-  return res.count;
-}
-
 // ── Session recovery (safety net beyond the per-session sweep) ─
 
 export async function recoverStuckSessions(): Promise<number> {

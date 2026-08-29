@@ -3,18 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { FolderOpen, HelpCircle, Home, MessageCirclePlus, Menu, ShieldQuestion, Trophy, X, Flag, FolderPlus } from "lucide-react";
+import { FolderOpen, HelpCircle, MessageCirclePlus, Menu, ShieldQuestion, X, Flag, FolderPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NotificationBell } from "./notification-bell";
 
 const LINKS = [
-  { href: "/app", label: "Dashboard", icon: Home },
   { href: "/app/categories", label: "Categories", icon: FolderOpen },
   { href: "/app/contributions", label: "My Questions", icon: ShieldQuestion },
   { href: "/app/reports", label: "Reports", icon: Flag },
   { href: "/app/requests", label: "Requests", icon: FolderPlus },
   { href: "/app/contribute", label: "Contribute", icon: MessageCirclePlus },
-  { href: "/app/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/app/help", label: "Help", icon: HelpCircle },
 ];
 
@@ -22,7 +19,7 @@ export function AppHeader() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  const isActive = (href: string) => (href === "/app" ? pathname === "/app" : pathname.startsWith(href));
+  const isActive = (href: string) => pathname.startsWith(href);
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-white/90 backdrop-blur">
@@ -52,7 +49,6 @@ export function AppHeader() {
         </nav>
 
         <div className="flex items-center gap-1">
-          <NotificationBell />
           <button
             type="button"
             aria-label="Toggle navigation"

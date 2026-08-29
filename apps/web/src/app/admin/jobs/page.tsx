@@ -19,7 +19,7 @@ type RecentJob = { id: string; name: string; queue: string; status: string; atte
 
 type JobsData = { queues: Record<string, QueueCounts>; recent: RecentJob[]; queue: string; states: string[]; page: number };
 
-const QUEUE_LIST = ["moderation", "game", "notification", "campaign", "snapshot"];
+const QUEUE_LIST = ["moderation", "game", "notification", "snapshot"];
 const STATES = ["failed", "active", "waiting", "completed", "delayed"] as const;
 
 export default function AdminJobsPage() {

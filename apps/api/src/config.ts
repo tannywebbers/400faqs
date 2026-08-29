@@ -84,11 +84,6 @@ export const config = {
     jobLogRetentionDays: Math.max(1, int(process.env.JOB_LOG_RETENTION_DAYS, 14)),
   },
 
-  notifications: {
-    maxBroadcastRecipients: Math.max(1, int(process.env.NOTIFICATION_MAX_BROADCAST, 5000)),
-    retryFailedBroadcasts: bool(process.env.NOTIFICATION_RETRY_FAILED, true),
-  },
-
   maintenanceMode: bool(process.env.MAINTENANCE_MODE),
 
   deployment: {

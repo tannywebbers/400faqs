@@ -2,22 +2,15 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useState } from "react";
-import { BellRing, Check, CheckCheck, Plus } from "lucide-react";
+import { Check, CheckCheck } from "lucide-react";
 import { apiFetch, getToken } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
-import { cn, formatDateTime, timeAgo } from "@/lib/utils";
+import { formatDateTime, timeAgo } from "@/lib/utils";
 
 type AdminNotification = {
   id: string;
@@ -43,8 +36,6 @@ const TYPE_LABELS: Record<string, string> = {
 export default function AdminNotificationsPage() {
   const token = getToken();
   const qc = useQueryClient();
-  const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({ title: "", message: "", audience: "ALL", channel: "WHATSAPP", link: "" });
 
   const query = useQuery<AdminNotification[]>({
     queryKey: ["admin-notifications"],
@@ -56,17 +47,6 @@ export default function AdminNotificationsPage() {
     queryKey: ["admin-notifications-unread"],
     queryFn: () => apiFetch("/api/admin/notifications/unread-count", { token }),
     refetchInterval: 30_000,
-  });
-
-  const create = useMutation({
-    mutationFn: () => apiFetch<{ message?: string; recipients?: number }>("/api/admin/notifications/broadcast", { method: "POST", token, body: { ...form, link: form.link.trim() || undefined } }),
-    onSuccess: (res) => {
-      toast.success(res.message ?? "Broadcast queued");
-      setCreateOpen(false);
-      setForm({ title: "", message: "", audience: "ALL", channel: "WHATSAPP", link: "" });
-      qc.invalidateQueries({ queryKey: ["admin-notifications"] });
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Broadcast failed"),
   });
 
   const markRead = useMutation({
@@ -92,18 +72,13 @@ export default function AdminNotificationsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Notifications</h1>
           <p className="text-sm text-muted-foreground">
-            Admin alerts and the system warning center for players
+            System and moderation alerts
             {unread.data && unread.data.count > 0 ? ` · ${unread.data.count} unread` : ""}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" loading={markAllRead.isPending} onClick={() => markAllRead.mutate()}>
-            <CheckCheck className="h-4 w-4" /> Mark all read
-          </Button>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" /> Send Broadcast
-          </Button>
-        </div>
+        <Button variant="outline" loading={markAllRead.isPending} onClick={() => markAllRead.mutate()}>
+          <CheckCheck className="h-4 w-4" /> Mark all read
+        </Button>
       </div>
 
       <Card className="overflow-hidden rounded-2xl">
@@ -115,7 +90,7 @@ export default function AdminNotificationsPage() {
               ))}
             </div>
           ) : data.length === 0 ? (
-            <EmptyState title="No notifications" description="System alerts and broadcasts will appear here." />
+            <EmptyState title="No notifications" description="System alerts will appear here." />
           ) : (
             <Table>
               <TableHeader>
@@ -166,64 +141,6 @@ export default function AdminNotificationsPage() {
           )}
         </CardContent>
       </Card>
-
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Send system broadcast</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Title</Label>
-              <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Scheduled maintenance Sunday 02:00" />
-            </div>
-            <div className="space-y-2">
-              <Label>Message</Label>
-              <Textarea value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} rows={4} placeholder="Message shown to players…" />
-            </div>
-            <div className="space-y-2">
-              <Label>Audience</Label>
-              <Select value={form.audience} onValueChange={(v) => setForm({ ...form, audience: v })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All users</SelectItem>
-                  <SelectItem value="ACTIVE">Active (last 30 days)</SelectItem>
-                  <SelectItem value="INACTIVE">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Delivery</Label>
-              <Select value={form.channel} onValueChange={(v) => setForm({ ...form, channel: v })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="WHATSAPP">WhatsApp message</SelectItem>
-                  <SelectItem value="WEB">In-app only</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Link (optional)</Label>
-              <Input value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} placeholder="/app/categories" />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Delivered in throttled batches to respect WhatsApp limits. Banned users are never included.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              Cancel
-            </Button>
-            <Button loading={create.isPending} disabled={!form.title.trim() || !form.message.trim()} onClick={() => create.mutate()}>
-              <BellRing className="h-4 w-4" /> Send broadcast
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

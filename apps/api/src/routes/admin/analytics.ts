@@ -13,7 +13,6 @@ import {
 } from "../../services/analytics";
 import {
   getAnalyticsOverview,
-  getUserAnalytics,
   getSessionAnalytics,
   getContributionAnalytics,
   getAIAnalytics,
@@ -21,7 +20,6 @@ import {
   getMonetizationAnalytics,
   getRevenueAnalytics,
   getTimeseries,
-  getTopAnalytics,
   renderAnalyticsCsv,
   getQuestionAnalytics,
   getCategoryRankings,
@@ -115,13 +113,6 @@ analyticsRouter.get("/overview", validate(dateQuerySchema), async (req, res) => 
   res.json(ok(data));
 });
 
-// User analytics: totals, new/active/returning, per-day series, top players.
-analyticsRouter.get("/users", validate(dateQuerySchema), async (req, res) => {
-  const { from, to } = queryRange(req);
-  const data = await getUserAnalytics(from, to);
-  res.json(ok(data));
-});
-
 // Session analytics: creation/completion/abandonment, category & game-type breakdowns.
 analyticsRouter.get("/sessions", validate(dateQuerySchema), async (req, res) => {
   const { from, to } = queryRange(req);
@@ -171,13 +162,6 @@ analyticsRouter.get("/timeseries", validate(dateQuerySchema), async (req, res) =
   res.json(ok(data));
 });
 
-// Top lists: most-played questions, top categories, contributors, players, templates.
-analyticsRouter.get("/top", validate(dateQuerySchema), async (req, res) => {
-  const { from, to } = queryRange(req);
-  const data = await getTopAnalytics(from, to);
-  res.json(ok(data));
-});
-
 // Monetization funnel (gameplay -> gate -> link -> countdown -> code -> submit -> verified -> resume).
 analyticsRouter.get("/monetization/funnel", validate(dateQuerySchema), async (req, res) => {
   const { from, to } = queryRange(req);
@@ -207,7 +191,7 @@ analyticsRouter.get("/export", validate(dateQuerySchema), async (req, res) => {
 
   const csv = isLegacy ? await (async () => {
     const data = await getAdminAnalytics(from, to);
-    const columns = ["date", "users", "questions", "sessions", "moves", "contributions", "reports", "categoryRequests", "messages", "revenueLedger", "campaigns"];
+    const columns = ["date", "users", "questions", "sessions", "moves", "contributions", "reports", "categoryRequests", "messages", "revenueLedger"];
     const header = columns.map(csvEscape).join(",");
     const seriesRows = data.series.map((p) => columns.map((c) => csvEscape((p as unknown as Record<string, unknown>)[c])).join(","));
     const totalRow = columns.map((c) => csvEscape(c === "date" ? "TOTAL" : data.totals[c] ?? 0)).join(",");

@@ -10,7 +10,6 @@ const FOOTER_LINKS = [
   { href: "/contribute", label: "Contribute" },
   { href: "/report", label: "Report a Question" },
   { href: "/request-category", label: "Request a Category" },
-  { href: "/leaderboard", label: "Leaderboard" },
 ];
 
 const COMPANY_LINKS = [

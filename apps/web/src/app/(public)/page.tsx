@@ -54,7 +54,7 @@ export default async function HomePage() {
     settings?.["site.description"] ??
     "Challenge your friends. Ask hundreds of questions. Play Truth or Dare. Discover new categories. Everything inside WhatsApp.";
   const waNumber = settings?.["whatsapp.number"] ?? "";
-  const waLink = waNumber ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${encodeURIComponent("Hi! I want to play 400QUES")}` : null;
+  const waLink = waNumber ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${encodeURIComponent("START")}` : null;
 
   return (
     <>
@@ -163,8 +163,8 @@ export default async function HomePage() {
         </div>
         <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
           {[
-            { step: "1", title: "Message us", desc: "Open a chat with our WhatsApp number." },
-            { step: "2", title: "Create a session", desc: "Send NEW and get a unique invite code." },
+            { step: "1", title: "Message us", desc: "Open WhatsApp and send START to our number." },
+            { step: "2", title: "Create a session", desc: "Get a unique invite code instantly." },
             { step: "3", title: "Invite your friend", desc: "Share the code — they join instantly." },
             { step: "4", title: "Pick a category", desc: "Truth, Dare, or hundreds of themes." },
             { step: "5", title: "Play", desc: "Alternate turns. Answer. Have fun." },

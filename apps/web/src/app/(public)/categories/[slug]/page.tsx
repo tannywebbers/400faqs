@@ -94,7 +94,7 @@ export default async function CategoryDetailPage({ params }: { params: { slug: s
         <div className="mt-8 flex flex-wrap gap-3">
           {waNumber && (
             <a
-              href={whatsappLink(waNumber, `Hi! I want to play the ${category.name} category on 400QUES`)}
+              href={whatsappLink(waNumber, "START")}
               target="_blank"
               rel="noreferrer"
               className="inline-flex h-11 items-center gap-2 rounded-xl bg-gradient-brand px-5 text-sm font-semibold text-white shadow-soft transition-all hover:opacity-90"
@@ -157,15 +157,12 @@ export default async function CategoryDetailPage({ params }: { params: { slug: s
             <p className="mt-2 text-sm text-muted-foreground">
               {category.contributorCount} people contributed questions to this category.
             </p>
-            <Link href="/leaderboard" className="mt-3 inline-block text-sm font-semibold text-brand hover:underline">
-              See top contributors →
-            </Link>
           </div>
           <div className="rounded-2xl border border-line bg-white p-6 shadow-soft">
             <h3 className="font-semibold">How to play</h3>
             <ol className="mt-3 space-y-2 text-sm text-muted-foreground">
-              <li>1. Message our WhatsApp number</li>
-              <li>2. Send NEW to create a session</li>
+              <li>1. Message our WhatsApp number and send START</li>
+              <li>2. Get your invite code</li>
               <li>3. Share your invite code</li>
               <li>4. Pick the {category.name} category</li>
               <li>5. Play!</li>

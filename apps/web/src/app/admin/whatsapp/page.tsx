@@ -13,8 +13,6 @@ import {
   RefreshCw,
   Copy,
   Check,
-  Trash2,
-  Plus,
   ArrowUpRight,
   ArrowDownLeft,
   XCircle,
@@ -62,8 +60,9 @@ type MessageTemplate = {
   status: string;
   metaStatus: string | null;
   metaRejectionReason: string | null;
+  waTemplateId: string | null;
+  metaUpdatedAt: string | null;
   usageCount: number;
-  _count: { campaigns: number };
   createdAt: string;
 };
 
@@ -75,7 +74,16 @@ type TemplateStats = {
   approved: number;
   rejected: number;
   archived: number;
-  totalUsage: number;
+  synced: number;
+};
+
+type TemplateSyncResult = {
+  synced: boolean;
+  remote: boolean;
+  count: number;
+  created: number;
+  updated: number;
+  warning: string | null;
 };
 
 type MessageLogEntry = {
@@ -136,15 +144,6 @@ export default function AdminWhatsAppPage() {
     apiBase: "",
     webhookVerifyToken: "",
   });
-  const [templateForm, setTemplateForm] = useState({
-    name: "",
-    body: "",
-    header: "",
-    footer: "",
-    category: "UTILITY",
-    language: "en",
-  });
-  const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
   const [msgFilter, setMsgFilter] = useState({ direction: "", phone: "", status: "" });
   const [msgPage, setMsgPage] = useState(1);
   const [sessionFilter, setSessionFilter] = useState("");
@@ -215,41 +214,8 @@ export default function AdminWhatsAppPage() {
     },
   });
 
-  const createTemplateMutation = useMutation({
-    mutationFn: (data: Record<string, unknown>) =>
-      apiFetch("/api/admin/whatsapp/templates", { method: "POST", body: data, token }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-wa-templates"] });
-      setTemplateForm({ name: "", body: "", header: "", footer: "", category: "UTILITY", language: "en" });
-    },
-  });
-
-  const updateTemplateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
-      apiFetch(`/api/admin/whatsapp/templates/${id}`, { method: "PUT", body: data, token }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-wa-templates"] });
-      setEditingTemplate(null);
-      setTemplateForm({ name: "", body: "", header: "", footer: "", category: "UTILITY", language: "en" });
-    },
-  });
-
-  const deleteTemplateMutation = useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/admin/whatsapp/templates/${id}`, { method: "DELETE", token }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-wa-templates"] }),
-  });
-
-  const submitTemplateMutation = useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/admin/whatsapp/templates/${id}/submit`, { method: "POST", token }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-wa-templates"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-wa-template-stats"] });
-    },
-  });
-
-  const metaStatusMutation = useMutation({
-    mutationFn: ({ id, status, reason }: { id: string; status: string; reason?: string }) =>
-      apiFetch(`/api/admin/whatsapp/templates/${id}/meta-status`, { method: "POST", body: { metaStatus: status, reason }, token }),
+  const syncTemplatesMutation = useMutation<TemplateSyncResult>({
+    mutationFn: () => apiFetch("/api/admin/whatsapp/templates/sync", { method: "POST", token }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-wa-templates"] });
       queryClient.invalidateQueries({ queryKey: ["admin-wa-template-stats"] });
@@ -593,78 +559,45 @@ export default function AdminWhatsAppPage() {
             </Card>
             <Card>
               <CardContent className="flex items-center gap-4 p-5">
-                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-100 text-red-600"><AlertTriangle className="h-5 w-5" /></span>
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-700"><RefreshCw className="h-5 w-5" /></span>
                 <div>
-                  <p className="text-sm text-muted-foreground">Total Usage</p>
-                  <p className="font-semibold">{templateStatsQuery.data?.totalUsage?.toLocaleString() ?? "—"}</p>
+                  <p className="text-sm text-muted-foreground">Synced from Meta</p>
+                  <p className="font-semibold">{templateStatsQuery.data?.synced ?? "—"}</p>
                 </div>
               </CardContent>
             </Card>
           </div>
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><FileText className="h-4 w-4" /> Message Templates</CardTitle>
-              <CardDescription>Create and manage reusable message templates</CardDescription>
+              <CardDescription>
+                Meta is the source of truth for WhatsApp templates. Sync pulls the current template library from{" "}
+                <span className="font-mono">{s?.businessAccountId ? "your" : "—"}</span> Meta Business Platform; templates cannot be created or edited here.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Template Name</Label>
-                  <Input placeholder="e.g. welcome_message" value={templateForm.name} onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })} />
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-surface p-4">
+                <div className="max-w-xl text-sm text-muted-foreground">
+                  {syncTemplatesMutation.data?.warning ? (
+                    <span className="text-amber-600">{syncTemplatesMutation.data.warning}</span>
+                  ) : syncTemplatesMutation.data ? (
+                    <span className="text-green-600">
+                      Synced {syncTemplatesMutation.data.count} template{syncTemplatesMutation.data.count === 1 ? "" : "s"} — {syncTemplatesMutation.data.created} created,{" "}
+                      {syncTemplatesMutation.data.updated} updated.
+                    </span>
+                  ) : (
+                    "Templates are downloaded from Meta and cached locally. Ready for the approval workflow on the Meta dashboard."
+                  )}
                 </div>
-                <div className="space-y-2">
-                  <Label>Category</Label>
-                  <select
-                    value={templateForm.category}
-                    onChange={(e) => setTemplateForm({ ...templateForm, category: e.target.value })}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="UTILITY">Utility</option>
-                    <option value="MARKETING">Marketing</option>
-                    <option value="AUTHENTICATION">Authentication</option>
-                  </select>
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label>Header (optional, max 60 chars)</Label>
-                  <Input placeholder="Optional header text" value={templateForm.header} onChange={(e) => setTemplateForm({ ...templateForm, header: e.target.value })} maxLength={60} />
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label>Body *</Label>
-                  <textarea
-                    placeholder="Template body text. Use {{1}}, {{2}} for variables."
-                    value={templateForm.body}
-                    onChange={(e) => setTemplateForm({ ...templateForm, body: e.target.value })}
-                    rows={3}
-                    maxLength={1024}
-                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  />
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label>Footer (optional, max 60 chars)</Label>
-                  <Input placeholder="Optional footer text" value={templateForm.footer} onChange={(e) => setTemplateForm({ ...templateForm, footer: e.target.value })} maxLength={60} />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                {editingTemplate && (
-                  <Button variant="outline" onClick={() => { setEditingTemplate(null); setTemplateForm({ name: "", body: "", header: "", footer: "", category: "UTILITY", language: "en" }); }}>
-                    Cancel
-                  </Button>
-                )}
-                <Button
-                  onClick={() => {
-                    if (!templateForm.name || !templateForm.body) return;
-                    const data = { ...templateForm, status: "ACTIVE" };
-                    if (editingTemplate) {
-                      updateTemplateMutation.mutate({ id: editingTemplate, data });
-                    } else {
-                      createTemplateMutation.mutate(data);
-                    }
-                  }}
-                  disabled={createTemplateMutation.isPending || updateTemplateMutation.isPending || !templateForm.name || !templateForm.body}
-                >
-                  {editingTemplate ? "Update Template" : "Create Template"}
+                <Button onClick={() => syncTemplatesMutation.mutate()} disabled={syncTemplatesMutation.isPending}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${syncTemplatesMutation.isPending ? "animate-spin" : ""}`} />
+                  {syncTemplatesMutation.isPending ? "Syncing…" : "Sync from Meta"}
                 </Button>
               </div>
+              {syncTemplatesMutation.isError && (
+                <p className="text-sm text-red-600">{(syncTemplatesMutation.error as Error).message}</p>
+              )}
             </CardContent>
           </Card>
 
@@ -675,7 +608,7 @@ export default function AdminWhatsAppPage() {
                   {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
                 </div>
               ) : !(templatesQuery.data?.data ?? []).length ? (
-                <EmptyState title="No templates" description="Create your first message template above." className="py-12" />
+                <EmptyState title="No templates" description="Sync from Meta to load your template library." className="py-12" />
               ) : (
 <Table>
                     <TableHeader>
@@ -685,8 +618,7 @@ export default function AdminWhatsAppPage() {
                         <TableHead>Body Preview</TableHead>
                         <TableHead>Meta Status</TableHead>
                         <TableHead>Uses</TableHead>
-                        <TableHead>Created</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
+                        <TableHead>Synced</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -694,14 +626,14 @@ export default function AdminWhatsAppPage() {
                         <TableRow key={t.id}>
                           <TableCell className="font-medium">{t.name}</TableCell>
                           <TableCell><Badge variant="gray">{t.category}</Badge></TableCell>
-                          <TableCell className="max-w-[180px] truncate text-muted-foreground text-sm">{t.body}</TableCell>
+                          <TableCell className="max-w-[200px] truncate text-muted-foreground text-sm">{t.body}</TableCell>
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               <Badge variant={t.metaStatus === "APPROVED" ? "green" : t.metaStatus === "REJECTED" || t.status === "REJECTED" ? "red" : t.status === "SUBMITTED" || t.metaStatus === "PENDING" ? "orange" : "gray"}>
                                 {t.metaStatus ?? t.status}
                               </Badge>
-                              {(t.metaRejectionReason ?? (t.status === "REJECTED" ? t.metaRejectionReason : null)) && (
-                                <span className="max-w-[140px] truncate text-[10px] text-red-600" title={t.metaRejectionReason ?? undefined}>
+                              {t.metaRejectionReason && (
+                                <span className="max-w-[140px] truncate text-[10px] text-red-600" title={t.metaRejectionReason}>
                                   {t.metaRejectionReason}
                                 </span>
                               )}
@@ -709,70 +641,8 @@ export default function AdminWhatsAppPage() {
                           </TableCell>
                           <TableCell>
                             <span className="text-sm">{t.usageCount ?? 0}</span>
-                            {t._count?.campaigns > 0 && <span className="ml-1 text-[10px] text-muted-foreground">({t._count.campaigns} camp)</span>}
                           </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{timeAgo(t.createdAt)}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {(t.status === "DRAFT" || t.status === "ACTIVE" || t.status === "SUBMITTED") && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-brand"
-                                  disabled={submitTemplateMutation.isPending}
-                                  onClick={() => submitTemplateMutation.mutate(t.id)}
-                                >
-                                  {submitTemplateMutation.isPending ? "…" : "Submit to Meta"}
-                                </Button>
-                              )}
-                              {["DRAFT", "ACTIVE", "SUBMITTED", "APPROVED", "REJECTED"].includes(t.status) && (
-                                <select
-                                  value={t.metaStatus ?? t.status}
-                                  disabled={metaStatusMutation.isPending}
-                                  onChange={(e) => {
-                                    if (e.target.value === "REJECTED") {
-                                      const reason = prompt("Rejection reason (optional):");
-                                      metaStatusMutation.mutate({ id: t.id, status: e.target.value, reason: reason ?? undefined });
-                                    } else {
-                                      metaStatusMutation.mutate({ id: t.id, status: e.target.value });
-                                    }
-                                  }}
-                                  className="h-8 rounded-md border border-input bg-background px-1.5 text-xs"
-                                >
-                                  <option value="PENDING">Pending</option>
-                                  <option value="APPROVED">Approve</option>
-                                  <option value="REJECTED">Reject</option>
-                                </select>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setEditingTemplate(t.id);
-                                  setTemplateForm({
-                                    name: t.name,
-                                    body: t.body,
-                                    header: t.header ?? "",
-                                    footer: t.footer ?? "",
-                                    category: t.category,
-                                    language: t.language,
-                                  });
-                                }}
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-600 hover:text-red-700"
-                                onClick={() => {
-                                  if (confirm(`Delete template "${t.name}"?`)) deleteTemplateMutation.mutate(t.id);
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{t.metaUpdatedAt ? timeAgo(t.metaUpdatedAt) : "—"}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

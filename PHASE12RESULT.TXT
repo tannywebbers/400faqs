@@ -1,0 +1,425 @@
+PHASE 12 RESULT
+===============
+
+PHASE NUMBER AND NAME
+---------------------
+Phase 12 — Platform Simplification & Product Sharpening
+(Campaigns removed, Meta = template source of truth with sync-only provisioning, ad-network
+revenue configuration removed, Ads removed, /app streamlined, anonymous contribution made
+official, analytics trimmed to product data, broadcast removed, floating WhatsApp START
+button) on the completed 400QUES monorepo (packages/db, apps/api, apps/web).
+
+IMPLEMENTATION SUMMARY
+----------------------
+Phase 12 was carried out on the completed 400QUES monorepo (packages/db, apps/api, apps/web)
+as a deliberate simplification pass: the surface area of the platform was reduced so the
+product is tighter, cheaper to operate, and fully oriented around its WhatsApp-first core.
+Every removal was made while keeping the live features (game engine, question pipeline,
+monetization verification gates + revenue ledger, admin suite, analytics, notifications)
+intact and typecheck-clean:
+
+  - Campaigns fully removed: admin CRUD API + pages, the WhatsApp campaign delivery service,
+    the campaign queue worker and webhook delivery-sync, campaign analytics series/columns,
+    seed settings and nav entries. Metadata templates are no longer "submitted for approval
+    to use in campaigns" — Meta is now the single source of truth and the API only syncs
+    template status FROM Meta (read-only provisioning).
+  - Ads removed: public display-ad endpoints (GET /api/public/ads, POST /api/public/ads/:id/click),
+    the admin ad router/page, and every ad-impression/engagement counter in analytics and
+    snapshots.
+  - Ad-provider revenue configuration removed from monetization: providers now carry identity
+    + enablement only (no revenueModel/currency/CPM/CPC/CPA rates/payouts), and the seed
+    revenue.estimationEnabled / revenue.estimationMode vestigial settings were removed.
+    The revenue ledger and verification-gate monetization model remain unchanged.
+  - /app simplified: leaderboard (list/all-time links, /api/public/leaderboard,
+    /api/public/top-contributors), profiles, badges (admin CRUD, auto-award on approval,
+    seeding, /app badge display), in-app notification center + header bell, and the in-app
+    search page were all removed. The app now starts at /app/categories and stays focused
+    on gameplay.
+  - Anonymous contribution made official: Contribution.userPhone is now nullable
+    (schema + zod + moderation service + admin UI "Anonymous" label + CSV "anonymous"
+    cell); the per-phone daily limit only applies when a phone is supplied. Non-anonymous
+    contributions and the bot flow keep phone=identity unchanged.
+  - Analytics trimmed to product data: the /users and /top admin endpoints, getUserAnalytics,
+    getTopAnalytics, the topContributors aggregation, the per-day "users" timeseries column
+    and the users CSV dataset were removed; the web BI dashboard dropped the Users tab and the
+    Top-contributors card. Phone masking helpers tied to the removed surfaces were deleted.
+  - Notification broadcast removed: the admin POST /api/admin/notifications/broadcast endpoint,
+    the broadcastNotification() service, the "broadcast" BullMQ job + batch worker and the
+    broadcast-resume cron are gone; the admin notification center remains (list/unread/read).
+  - A floating WhatsApp button ("Start on WhatsApp") was added site-wide via wa.me with the
+    pre-filled START command, and all public flow copy now teaches the START command
+    (aliases start/new/play/create in the bot's command registry).
+  - A strict BUILD-ONLY approach was followed: no tests, no servers, no WhatsApp/Google-AI/
+    game/live-DB/external-service runtime verification. Only prisma generate and TypeScript
+    typechecks were run (db / api / web: 0 errors each). Lint was not run because the repo
+    has no ESLint configuration (pre-existing condition).
+
+EXISTING FEATURES DISCOVERED
+----------------------------
+  - Monorepo: packages/db (Prisma 5.22.0, seed), apps/api (Express 4, Zod, BullMQ, node-cron,
+    socket.io, multer+sharp), apps/web (Next.js 14 App Router, Tailwind, Radix, TanStack Query).
+  - WhatsApp-first product: phone number is the identity; the game, contributions, reports,
+    category requests and notifications are phone-scoped.
+  - Question pipeline: DB candidate search BEFORE Google AI; deterministic exact-duplicate
+    check; AI classification EXACT_DUPLICATE | VERY_SIMILAR | UNIQUE; VERY_SIMILAR routes to
+    manual review; UNIQUE can auto-approve when contribution.autoApprove is enabled.
+  - Monetization = verification/ad links only (no payments/premium/subscriptions); RevenueLedger
+    records per-verification revenue with ESTIMATED vs CONFIRMED trust split.
+  - Meta WhatsApp Cloud API integration: webhook ingestion (signature-verified), message send
+    service, and metadata templates synced from WhatsApp's template endpoint.
+  - Recovery/session-sweep/retention/snapshot crons run under Redis locks; notifications have a
+    channel/status lifecycle with a delivery worker.
+  - Orphaned-but-now-unused data models were discovered (see DATABASE / SCHEMA CHANGES): the
+    Badge/UserBadge, Campaign/CampaignDelivery and Ad rows and related enum values have no
+    remaining consumer after this phase's removals.
+
+FEATURES ADDED
+--------------
+  1. Meta-as-source-of-truth template sync (apps/api/src/services/template.service.ts +
+     routes/admin/whatsapp.ts + /admin/whatsapp templates tab): templates are now synced one-way
+     FROM Meta via POST /api/admin/templates/sync (audited as TEMPLATES_SYNCED). The admin tab
+     shows four read-only stats (total / draft / active / submitted / approved / rejected /
+     archived / synced) with a "Sync from Meta" button and a read-only template table. The ability
+     to create/update/delete/submit templates through the admin UI was removed (provisioning is
+     done on Meta's side; 400QUES only reflects Meta state).
+  2. Floating WhatsApp START button (apps/web/src/components/whatsapp-float.tsx): a fixed
+     bottom-right green button on every page that deep-links to wa.me/<whatsapp.number>?text=START.
+     It renders only when the whatsapp.number public setting is configured and text-prefills the
+     bot entry command START (aliases start/new/play/create).
+  3. Anonymous contribution support end-to-end: schema-level nullable userPhone,
+     optional userPhone in the public zod schema, moderation accepts null, the per-day limit is
+     skipped without a phone, the public contribute form marks the field "(optional) — leave
+     blank to contribute anonymously", admin approval/console renders "Anonymous", and the
+     contributions CSV emits "anonymous" for null phones.
+
+FEATURES UPDATED
+----------------
+  - apps/api/src/routes/public.ts: POST /api/public/contributions validates userPhone as optional
+    and only looks up the player when a phone is present; GET /api/public/contributions/:ticket
+    and the contribution list stay null-safe.
+  - apps/api/src/services/moderation.ts: SubmitContributionInput.userPhone is string | null;
+    the per-day contribution limit query runs only when input.userPhone is set.
+  - apps/api/src/services/analytics-advanced.ts: provider performance rows now select
+    { id, name } only; contribution CSV labels anonymous rows; getTimeseries dropped "users";
+    getAnalyticsConfig/getUserAnalytics/getTopAnalytics/topContributors/maskPhone removed.
+  - apps/api/src/routes/admin/analytics.ts: /users and /top removed; only product-facing
+    endpoints remain (overview, sessions, contributions, ai/advanced, whatsapp/advanced,
+    monetization, revenue, timeseries, export, questions/advanced, categories/rankings).
+  - apps/api/src/routes/admin/monetization.ts: provider create/update schemas + handlers +
+    audit details stripped of all revenue fields.
+  - apps/api/src/routes/admin/notifications.ts: system/alert notification center retained
+    (list, unread-count, mark-read, read-all); broadcast endpoint removed.
+  - apps/api/src/workers/notification.worker.ts: single deliverOne path (claim->send->settle);
+    broadcast batching/chaining job removed.
+  - apps/api/src/index.ts: crons reduced to recovery (single */5 sweep), session-sweep,
+    retention-cleanup, snapshot + system.lastDeployment upsert; broadcast-resume cron removed.
+  - apps/api/src/routes/webhook.ts + services/recovery.ts: campaign delivery-sync and
+    recoverStuckCampaignDeliveries removed.
+  - apps/api/src/lib/queue.ts: QUEUE_LIST is now ["moderation","game","notification","snapshot"].
+  - packages/db/prisma/seed.ts: removed campaign.* / revenue.estimationEnabled /
+    revenue.estimationMode settings and all DEFAULT_BADGES seeding.
+  - apps/web/src/app/app/page.tsx: now redirects to /app/categories; app header/footer cleaned
+    (no Dashboard/Leaderboard links, no notification bell).
+  - apps/web/src/app/admin/(dashboard,whatsapp,contributions,analytics,notifications)*: nav
+    simplified (no Campaigns/Badges/Users/Ads); analytics page dropped the Users tab and
+    Top-contributors card; contribute/approve pages handle anonymous submitters.
+  - .env.example: removed NOTIFICATION_MAX_BROADCAST / NOTIFICATION_RETRY_FAILED.
+
+FEATURES REMOVED
+----------------
+  - Campaigns (entire feature): routes/admin/campaigns.ts, services/campaign.ts (530 lines),
+    workers/campaign.worker.ts, admin + app campaign pages, campaign webhook delivery-sync,
+    campaign analytics series/columns, campaign nav + seeding. Templates are no longer created
+    through 400QUES and no delivery/job per template remains.
+  - Ads (entire feature): routes/admin/ads.ts, admin/ads page, public GET /ads + POST /ads/:id/click,
+    ad impression/engagement counters in services/analytics.ts and services/snapshot.ts.
+  - Ad-provider revenue configuration: revenueModel/currency/CPM/CPC/CPA/fixed-payout/estimated-
+    payout fields on the provider API and audit trail.
+  - Badges (feature): routes/admin/badges.ts, admin badges page, badge auto-award on approval
+    (routes/admin/contributions.ts), DEFAULT_BADGES seeding, /app badge display.
+  - Public player leaderboards: /api/public/leaderboard, /api/public/top-contributors,
+    services/leaderboard.ts, /app/leaderboard and /(public)/leaderboard pages, header/footer links.
+  - Public profile + in-app notifications: /api/public/profile, /api/public/notifications*,
+    /app/notifications page, notification-bell component and unread badge.
+  - Admin user management: routes/admin/users.ts, admin users page, "Total Users" dashboard tile.
+  - In-app search: /app/search page (public /(public)/search + /api/public/search remain).
+  - Notification broadcast: admin POST /broadcast, broadcastNotification() service, "broadcast"
+    queue job + batch worker + broadcast-resume cron, broadcast UI in the admin notification center.
+  - Analytics surfaces without product value: /api/admin/analytics/users, /api/admin/analytics/top,
+    getUserAnalytics, getTopAnalytics, topContributors, per-day users timeseries, users CSV dataset,
+    admin analytics Users tab + Top-contributors card, masked phone helpers on removed surfaces.
+
+BUGS / FUNCTIONALITY FIXED
+--------------------------
+  1. Removing the badge/leaderboard public helpers from routes/public.ts initially removed
+     duplicateClassification(), which /api/public/contributions (duplicate detection + duplicate-
+     of suppression) still needs — reintroduced so the route typechecks again.
+  2. Admin contributions page ("Phone: ..." detail + table cell) referenced a non-nullable phone;
+     now null-safe and renders "Anonymous" for phone-less contributors.
+  3. Contribution CSV export wrote the raw (now possibly-null) userPhone column; an empty/null
+     phone produced an empty cell — now emits "anonymous".
+  4. Vestigial seed settings (revenue.estimationEnabled / revenue.estimationMode) had no consumer
+     and were misleading alongside the stripped provider rates; removed.
+  5. Admin analytics web page still had a dead Top-contributors card + type + maskPhone import
+     after the API field was removed; the card, the topContributors field and the import were
+     deleted.
+
+DATABASE / SCHEMA CHANGES
+-------------------------
+  Schema file: packages/db/prisma/schema.prisma.
+    - Contribution.userPhone changed from String to String? (anonymous contributions official).
+      This is the only schema change. The Prisma client was regenerated (v5.22.0). A migration
+      must be generated and applied by the next DB-enabled phase (DATABASE_URL was not available;
+      run `prisma migrate dev --name phase12_anonymous_contributions` then `prisma db push` in
+      non-dev environments).
+  Orphaned data-layer models retained intentionally (no code reads or writes them anymore):
+    - Badge, UserBadge (after award-on-approve + seeding removal).
+    - Campaign, CampaignDelivery (+ MessageLog.campaignDeliveryId, MessageTemplate.campaigns,
+      Admin.campaigns, User.campaignDeliveries back-relations/enum usage).
+    - Ad (+ AdPlacement enum value usage) — AdProvider/AdSnippet remain in use by monetization.
+    - NotificationType enum values AD / BROADCAST / CAMPAIGN_COMPLETED.
+  These are deliberately left in place because dropping models/columns is a destructive data
+  operation that must be executed with a database available and reviewed data-loss semantics
+  (see CONFIGURATION NOTES / reserve-for-phase note).
+
+ENVIRONMENT CHANGES
+-------------------
+  - Removed from .env.example: NOTIFICATION_MAX_BROADCAST, NOTIFICATION_RETRY_FAILED (no code
+    path reads them). No new environment variables were added. All other env vars remain
+    documented placeholders as before.
+
+API ENDPOINTS CREATED OR MODIFIED
+---------------------------------
+  Created:
+    POST /api/admin/templates/sync       pull template state from Meta (audit TEMPLATES_SYNCED)
+  Modified:
+    POST /api/public/contributions       userPhone optional; anonymous accepted
+    GET  /api/public/contributions       null-safe for anonymous contributions
+    GET  /api/public/contributions/:ticket  null-safe for anonymous contributions
+    GET  /api/admin/analytics/export     contributions CSV flags anonymous rows "anonymous"
+    POST /api/admin/monetization/providers + PUT /:id   revenue fields removed from schema/audit
+    GET  /api/admin/analytics/overview   timeseries no longer reports daily "users"
+  Removed (public):
+    GET  /api/public/leaderboard
+    GET  /api/public/top-contributors
+    GET  /api/public/profile
+    GET  /api/public/notifications
+    GET  /api/public/notifications/unread-count
+    POST /api/public/notifications/read
+    POST /api/public/notifications/read-all
+    GET  /api/public/ads
+    POST /api/public/ads/:id/click
+  Removed (admin):
+    GET/POST/PUT/DELETE /api/admin/campaigns (+ /:id/send, /:id/toggle, job endpoints)
+    GET/POST/PUT/DELETE /api/admin/badges
+    GET/PUT/POST        /api/admin/users (+ /:id/ban, /:id/unban)
+    GET/POST/PUT/DELETE /api/admin/ads (+ engagement stats)
+    POST /api/admin/notifications/broadcast
+    GET  /api/admin/analytics/users
+    GET  /api/admin/analytics/top
+
+SECURITY CHANGES
+----------------
+  - Reduced public surface: the player-facing API no longer exposes profile, leaderboards,
+    public notifications or ad-click endpoints — fewer vectors, less sensitive data on the wire.
+  - Anonymous contributions cannot be tied to a phone, so the per-phone daily contribution
+    limit (spam control) is intentionally bypassed for anonymous submissions; moderation
+    (AI + duplicate check) still gates every anonymous row before it can reach the library.
+  - Admin user-management endpoints (ban/unban/role) were removed along with the feature; the
+    remaining admin routes stay behind the existing admin JWT + role gate.
+  - All existing protections remain in force: admin JWT + role checks, phone-scoped public
+    actions, non-anonymous contribution/report daily limits, rate limits (auth, code,
+    contributions, monetization, public, webhook), helmet + compression, request-id
+    propagation, and the admin audit log on every mutation.
+  - No secrets were added to the repository; .env stays git-ignored, .env.example committed.
+
+WHATSAPP CHANGES
+----------------
+  - Templates are now provisioned and managed entirely on Meta; 400QUES only syncs state FROM
+    Meta (POST /api/admin/templates/sync). Template create/update/submit flows in the admin UI
+    were deleted, and webhook campaign delivery-sync was removed.
+  - Campaign delivery machinery (send jobs, claim-then-send dedupe, campaign worker,
+    recoverStuckCampaignDeliveries, broadcast queue job and resume cron) is gone.
+  - The public site teaches a single entry command: START (bot aliases start/new/play/create
+    already accept it) via the wa.me links on the hero, final CTA and new floating button.
+  - Notification delivery is now one path only: per-recipient WhatsApp send with claim/settle
+    status lifecycle; no broadcast/batch loops.
+
+GAME-SESSION CHANGES
+--------------------
+  - No game rules changed. The game engine, session lifecycle, invite flow, turn timeouts and
+    scoring are untouched. /app starts at /app/categories (redirect from /app) — the removed
+    app pages (leaderboard, notifications, search) have no game-engine impact.
+  - The WhatsApp START entry command behaves identically to the previous /start flow.
+
+MONETIZATION CHANGES
+--------------------
+  - Verification-gate monetization is unchanged (gate lifecycle, code subission, resume,
+    RevenueLedger with ESTIMATED vs CONFIRMED, admin revenue endpoints, payout rate setting).
+  - Ad-provider records were reduced to identity/enablement (name, token, enabled, etc.); all
+    revenue model/rate/payout fields were removed from the provider API, the analytics
+    attribute rows, and the seed settings that referenced them. Providers no longer imply any
+    pricing — the product ships ad-free and the ledger is the only revenue source.
+
+GOOGLE-AI CHANGES
+-----------------
+  - No Google AI decision-matrix changes. The question-moderation pipeline (DB candidate search,
+    exact-duplicate check, AI classification, auto-approve/manual-review routing, aiThreshold /
+    similarThreshold settings) is unchanged and now also processes anonymous contributions
+    exactly like phone-bearing ones.
+
+FRONTEND CHANGES
+----------------
+  - Site-wide floating WhatsApp button (components/whatsapp-float.tsx) mounted in the root
+    layout; hidden when whatsapp.number is unset.
+  - Landing page: hero + final-CTA wa.me links prefill the START command; "How it works" copy
+    updated from "send NEW" to "send START".
+  - (public)/categories/[slug]: "How to play" copy + category CTA use the START command.
+  - /app: homepage redirects to /app/categories; header/footer cleaned; removed leaderboard,
+    notifications, search pages and the notification bell.
+  - /admin: nav simplified to the remaining suites (no Campaigns / Badges / Users / Ads);
+    dashboard dropped the "Total Users" tile; whatsapp templates tab is read-only + Sync;
+    notifications center has no broadcast composer; analytics page dropped the Users tab and
+    Top-contributors card; contributions page shows "Anonymous" submitters.
+  - (public)/contribute: WhatsApp number field is optional with anonymous support copy.
+
+FILES CREATED
+-------------
+  apps/web/src/components/whatsapp-float.tsx
+  PHASE12RESULT.TXT
+
+FILES MODIFIED
+--------------
+  .env.example                                     removed broadcast env defaults
+  packages/db/prisma/schema.prisma                 Contribution.userPhone -> String?
+  packages/db/prisma/seed.ts                       campaign.*/revenue.estimation*/badge seeds removed
+  apps/api/src/config.ts                           removed notifications config block
+  apps/api/src/index.ts                            removed broadcast-resume cron
+  apps/api/src/lib/queue.ts                        QUEUE_LIST without campaign
+  apps/api/src/lib/redis.ts                        removed cache:public:leaderboard key
+  apps/api/src/routes/admin/analytics.ts           removed /users + /top
+  apps/api/src/routes/admin/contributions.ts       no badge award on approve
+  apps/api/src/routes/admin/index.ts               removed ads/badges/users/campaign routers
+  apps/api/src/routes/admin/monetization.ts        provider revenue fields stripped
+  apps/api/src/routes/admin/notifications.ts       removed /broadcast
+  apps/api/src/routes/admin/whatsapp.ts            sync-only templates (read-only + stats)
+  apps/api/src/routes/public.ts                    userPhone optional; leaderboard/profile/
+                                                  notifications/ads endpoints removed
+  apps/api/src/routes/webhook.ts                   campaign delivery-sync removed
+  apps/api/src/services/analytics-advanced.ts      provider perf flattened; users/top/topContributors
+                                                  removed; getUserAnalytics/getAnalyticsConfig
+                                                  removed; CSV anonymous-safe
+  apps/api/src/services/analytics.ts               ads counts removed
+  apps/api/src/services/moderation.ts              userPhone nullable + per-day guard
+  apps/api/src/services/notifications.ts           broadcastNotification removed
+  apps/api/src/services/recovery.ts                recoverStuckCampaignDeliveries removed
+  apps/api/src/services/snapshot.ts                ads counts removed
+  apps/api/src/services/template.service.ts        syncTemplatesFromMeta/normalizeMetaStatus/
+                                                  getTemplateStats rewrite
+  apps/api/src/workers/index.ts                    campaign worker unmounted
+  apps/api/src/workers/notification.worker.ts      broadcast job removed
+  apps/web/src/app/...  (public, admin, app layouts/nav/pages listed in FEATURES UPDATED)
+
+FILES REMOVED
+-------------
+  apps/api/src/routes/admin/ads.ts
+  apps/api/src/routes/admin/badges.ts
+  apps/api/src/routes/admin/campaigns.ts
+  apps/api/src/routes/admin/users.ts
+  apps/api/src/services/campaign.ts
+  apps/api/src/services/leaderboard.ts
+  apps/api/src/workers/campaign.worker.ts
+  apps/web/src/app/(public)/leaderboard/page.tsx
+  apps/web/src/app/admin/ads/page.tsx
+  apps/web/src/app/admin/badges/page.tsx
+  apps/web/src/app/admin/campaigns/page.tsx
+  apps/web/src/app/admin/campaigns/[id]/page.tsx
+  apps/web/src/app/admin/users/page.tsx
+  apps/web/src/app/app/leaderboard/page.tsx
+  apps/web/src/app/app/notifications/page.tsx
+  apps/web/src/app/app/search/page.tsx
+  apps/web/src/components/app/notification-bell.tsx
+
+CONFIGURATION NOTES
+-------------------
+  - DATABASE_URL unset during this phase: prisma generate works, migrations could not be applied.
+    Next DB-enabled phase MUST run `npm run db:generate` then `npm run db:migrate` (or
+    `npm run db:push`) so the Contribution.userPhone nullable change lands.
+  - Reserved cleanup (do NOT run in BUILD-ONLY): dropping the orphaned Badge/UserBadge/
+    Campaign/CampaignDelivery/Ad models and the NotificationType AD/BROADCAST/
+    CAMPAIGN_COMPLETED enum values is a destructive data migration requiring a reviewable
+    data-loss confirmation with a database available. It is intentionally out of scope here.
+  - WhatsApp flow: play starts by messaging the configured number and sending START (or
+    /start, NEW, play, create — all accepted). wa.me links site-wide prefill "START".
+  - Floating button needs the whatsapp.number public setting (admin settings / seed); without
+    it the button is not rendered.
+  - Typecheck commands per workspace: packages/db, apps/api, apps/web — all currently 0 errors.
+
+IMPORTANT ARCHITECTURAL DECISIONS
+---------------------------------
+  (All inherited Phase 1-11 product decisions remain in force: free app, no premium features,
+  WhatsApp primary, phone = identity, DB-first Google-AI duplicate detection, exact-dup
+  auto-reject, VERY_SIMILAR manual review, config-gated auto-approve, monetization via
+  verification links, liquid-glass green/blue/orange design.)
+  NEW decisions:
+    - Simplify to the product: anything that shipped in phases but did not serve the
+      WhatsApp-first question game (campaign management, display ads, badges/leaderboards/social
+      gamification, in-app notifications hub, internal search) is removed rather than maintained.
+    - Meta owns templates. 400QUES is a consumer of Meta's template state; the admin cannot
+      create/edit/submit templates locally — it syncs status one-way and surfaces it read-only.
+    - Anonymous contribution is a first-class, supported submission path (nullable userPhone);
+      it forgoes the per-phone daily limit by design, relying on moderation + duplicate
+      controls instead.
+    - Analytics is product data only: user-counting/admin-ops telemetry that duplicated the
+      product story was dropped; revenue/monetization BI stays.
+    - Same single container story as before: plan for one process mode running both API + worker
+      queues; workers still run via WORKER_PROCESS=1 if separated.
+    - No new npm dependencies, no lint config introduced.
+
+KNOWN LIMITATIONS
+-----------------
+  - Prisma migrations not applied (no DATABASE_URL). The Contribution.userPhone nullable change
+    is pending until the next phase runs migrate/db push; the orphaned models remain until a
+    deliberately destructive cleanup phase.
+  - BUILD-ONLY phase: no runtime, WhatsApp, Google-AI, campaign, or live external-service tests
+    were performed (see below). All code is typecheck-clean (db 0 / api 0 / web 0 errors) but
+    unverified at runtime.
+  - Anonymous contributions cannot be attributed to a player and are not subject to the
+    per-phone daily limit (intentional; moderation still gates every row).
+  - Lint is not configured in this repository (next lint interactively prompts for setup — a
+    pre-existing condition); typecheck is the verification gate used here.
+
+ANY UNRESOLVED ISSUES
+---------------------
+  - None blocking. Pending items are deployment/migration actions, not code defects:
+    (1) apply the Contribution.userPhone migration, (2) optionally run the destructive cleanup
+    of orphaned badge/campaign/ad models with data-loss review, (3) set whatsapp.number to
+    surface the floating START button.
+
+ANYTHING THE NEXT PHASE DEVELOPER NEEDS TO KNOW
+-----------------------------------------------
+  - Run, in order: npm install; npm run db:generate; apply schema via `npm run db:migrate` or
+    `npm run db:push` (includes phase12 userPhone nullable change); npm run seed (settings only —
+    no badges/campaign/revenue-estimation settings anymore); start Redis; npm run dev in
+    apps/api; then apps/web.
+  - /app now starts at /app/categories; the old /app/leaderboard, /app/notifications and
+    /app/search routes are gone — remove any stale links/redirects in external materials.
+  - Public phones: GET /api/public/leaderboard, /top-contributors, /profile, /notifications*
+    and the /ads endpoints are gone; admin phones: POST /api/admin/notifications/broadcast,
+    /api/admin/analytics/users, /api/admin/analytics/top and all /campaigns, /badges, /users,
+    /ads routes are gone. The frontend no longer calls any of them.
+  - Templates: manual template CRUD was removed — use POST /api/admin/templates/sync to pull
+    Meta's current template list; provisioning happens on Meta's side.
+  - Contribution submissions may omit userPhone. moderation.ts skips the per-day limit for
+    anonymous rows; the approval flow and CSV export are null-safe.
+  - The floating button + all wa.me CTAs prefill "START"; bot aliases start/new/play/create
+    are unchanged, so no bot change was required.
+  - The mandated result-file format was kept: this file must end with the exact strings below
+    (the contract for "BUILD ONLY").
+
+PHASE 12 WAS BUILD ONLY.
+NO TESTING WAS PERFORMED.
+NO RUNTIME TESTS WERE PERFORMED.
+NO WHATSAPP TESTS WERE PERFORMED.
+NO GOOGLE AI TESTS WERE PERFORMED.
+NO LIVE EXTERNAL-SERVICE TESTS WERE PERFORMED.

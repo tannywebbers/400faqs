@@ -20,7 +20,12 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const schema = z.object({
-  userPhone: z.string().min(8, "Enter your WhatsApp number with country code (e.g. 14155552671)").max(20),
+  userPhone: z
+    .string()
+    .max(20)
+    .refine((v) => !v || /^\d{8,20}$/.test(v), "Enter a valid WhatsApp number with country code (e.g. 14155552671)")
+    .optional()
+    .or(z.literal("")),
   categoryId: z.string().min(1, "Select a category"),
   question: z.string().min(3, "Question must be at least 3 characters").max(300, "Question too long"),
   type: z.enum(["NORMAL", "TRUTH", "DARE"]).default("NORMAL"),
@@ -97,12 +102,13 @@ export default function ContributePage() {
             <CardContent>
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
                 <div className="space-y-2">
-                  <Label htmlFor="userPhone">Your WhatsApp number</Label>
+                  <Label htmlFor="userPhone">WhatsApp number (optional)</Label>
                   <Input
                     id="userPhone"
                     placeholder="e.g. 14155552671"
                     {...register("userPhone")}
                   />
+                  <p className="text-xs text-muted-foreground">Leave blank to contribute anonymously.</p>
                   {errors.userPhone && <p className="text-sm text-red-600">{errors.userPhone.message}</p>}
                 </div>
 

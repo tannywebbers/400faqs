@@ -101,15 +101,6 @@ const providerSchema = z.object({
     enabled: z.boolean().default(true),
     priority: z.number().int().min(0).max(100000).default(100),
     configuration: z.record(z.string(), z.unknown()).optional(),
-    revenueModel: z.enum(["CPM", "CPC", "CPA", "FIXED"]).default("CPA"),
-    currency: z.string().min(3).max(8).default("USD"),
-    cpmRate: z.number().min(0).max(1_000_000).default(0),
-    cpcRate: z.number().min(0).max(1_000_000).default(0),
-    cpaRate: z.number().min(0).max(1_000_000).default(0),
-    fixedPayoutPerVerification: z.number().min(0).max(1_000_000).default(0),
-    estimatedPayoutPerVerification: z.number().min(0).max(1_000_000).default(0),
-    estimatedPayoutPerClick: z.number().min(0).max(1_000_000).default(0),
-    estimatedPayoutPerImpression: z.number().min(0).max(1_000_000).default(0),
   }),
 });
 
@@ -148,15 +139,6 @@ monetizationAdminRouter.post("/providers", validate(providerSchema), async (req,
       enabled: body.enabled,
       priority: body.priority,
       configuration: (body.configuration ?? undefined) as Prisma.InputJsonValue | undefined,
-      revenueModel: body.revenueModel,
-      currency: body.currency.toUpperCase(),
-      cpmRate: body.cpmRate,
-      cpcRate: body.cpcRate,
-      cpaRate: body.cpaRate,
-      fixedPayoutPerVerification: body.fixedPayoutPerVerification,
-      estimatedPayoutPerVerification: body.estimatedPayoutPerVerification,
-      estimatedPayoutPerClick: body.estimatedPayoutPerClick,
-      estimatedPayoutPerImpression: body.estimatedPayoutPerImpression,
     },
   });
 
@@ -166,7 +148,7 @@ monetizationAdminRouter.post("/providers", validate(providerSchema), async (req,
       action: "AD_PROVIDER_CREATED",
       targetType: "ad_provider",
       targetId: provider.id,
-      details: { name: provider.name, revenueModel: body.revenueModel, currency: body.currency.toUpperCase() },
+      details: { name: provider.name },
     },
   });
   await recordEvent("AD_PROVIDER_CREATED", { metadata: { name: provider.name } });
@@ -183,15 +165,6 @@ const providerUpdateSchema = z.object({
     enabled: z.boolean().optional(),
     priority: z.number().int().min(0).max(100000).optional(),
     configuration: z.record(z.string(), z.unknown()).optional(),
-    revenueModel: z.enum(["CPM", "CPC", "CPA", "FIXED"]).optional(),
-    currency: z.string().min(3).max(8).optional(),
-    cpmRate: z.number().min(0).max(1_000_000).optional(),
-    cpcRate: z.number().min(0).max(1_000_000).optional(),
-    cpaRate: z.number().min(0).max(1_000_000).optional(),
-    fixedPayoutPerVerification: z.number().min(0).max(1_000_000).optional(),
-    estimatedPayoutPerVerification: z.number().min(0).max(1_000_000).optional(),
-    estimatedPayoutPerClick: z.number().min(0).max(1_000_000).optional(),
-    estimatedPayoutPerImpression: z.number().min(0).max(1_000_000).optional(),
   }),
 });
 
@@ -204,7 +177,6 @@ monetizationAdminRouter.put("/providers/:id", validate(providerUpdateSchema), as
   if (!existing) throw new AppError(404, "Provider not found");
 
   const data: Record<string, unknown> = { ...body };
-  if (typeof data.currency === "string") data.currency = data.currency.toUpperCase();
 
   const updated = await prisma.adProvider.update({ where: { id }, data });
   await prisma.auditLog.create({
@@ -213,7 +185,7 @@ monetizationAdminRouter.put("/providers/:id", validate(providerUpdateSchema), as
       action: "AD_PROVIDER_UPDATED",
       targetType: "ad_provider",
       targetId: id,
-      details: { name: updated.name, revenueSettingsChanged: !!(body.revenueModel || body.currency || body.cpmRate || body.cpcRate || body.cpaRate || body.fixedPayoutPerVerification || body.estimatedPayoutPerVerification || body.estimatedPayoutPerClick || body.estimatedPayoutPerImpression) },
+      details: { name: updated.name },
     },
   });
   await recordEvent("AD_PROVIDER_UPDATED", { metadata: { name: updated.name } });

@@ -1,8 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { parseDateRange, buildDaySeries, countRowsByDay, getTopQuestions, getTopCategories } from "./analytics";
-import { getAllSettings, settingsToRecord, settingBool } from "./settings";
-import { getRevenueSettings } from "./revenue";
 
 // ============================================================
 // ADVANCED ADMIN ANALYTICS  (Phase 11)
@@ -49,11 +47,6 @@ export function resolveRange(from?: string, to?: string): Range {
     startKey: start.toISOString().slice(0, 10),
     endKey: end.toISOString().slice(0, 10),
   };
-}
-
-export function maskPhone(phone: string): string {
-  if (!phone || phone.length <= 6) return phone;
-  return `${phone.slice(0, 3)}*****${phone.slice(-2)}`;
 }
 
 export type Trend = { value: number; previous: number; changePct: number | null; direction: "up" | "down" | "flat" };
@@ -191,151 +184,6 @@ export async function getAnalyticsOverview(from?: string, to?: string): Promise<
       k("avgSessionSeconds", cur.avgSessionSeconds, prev.avgSessionSeconds),
       k("avgRoundsPerSession", cur.avgRoundsPerSession, prev.avgRoundsPerSession),
     ]),
-  };
-}
-
-// ============================================================
-// USERS
-// ============================================================
-
-export type UserAnalyticsResponse = {
-  range: Range;
-  totals: { totalUsers: number; newUsers: number; activeUsers: number; returningUsers: number; usersInSessions: number; usersContributing: number; usersReporting: number; usersRequesting: number };
-  series: { date: string; newUsers: number; activeUsers: number; returning: number }[];
-  platforms: { new: number; returning: number };
-  top: {
-    mostActive: { userId: string; phone: string; name: string | null; moves: number }[];
-    topContributors: { userId: string | null; phone: string; name: string | null; count: number }[];
-    mostAnswered: { userId: string; phone: string; name: string | null; answered: number }[];
-    mostSessions: { userId: string; phone: string; name: string | null; sessions: number }[];
-  };
-};
-
-export async function getUserAnalytics(from?: string, to?: string): Promise<UserAnalyticsResponse> {
-  const r = resolveRange(from, to);
-  const started = inRange(r);
-  const [totalUsers, newUsers, activeUsers] = await Promise.all([
-    prisma.user.count(),
-    prisma.user.count({ where: started }),
-    prisma.user.count({ where: { lastSeenAt: { gte: r.start, lte: r.end } } }),
-  ]);
-  const returning = await prisma.user.count({ where: { firstSeenAt: { lt: r.start }, lastSeenAt: { gte: r.start, lte: r.end } } });
-
-  const [sessionRows, moveRows, contributionRows, reportRows, requestRows] = await Promise.all([
-    prisma.session.findMany({ where: { ...started }, select: { creatorId: true, joinerId: true }, take: 20000 }),
-    prisma.gameMove.findMany({ where: started, select: { askedBy: true, answeredBy: true }, take: 20000 }),
-    prisma.contribution.findMany({ where: started, select: { userId: true, userPhone: true }, take: 20000 }),
-    prisma.questionReport.findMany({ where: started, select: { reporterId: true }, take: 10000 }),
-    prisma.categoryRequest.findMany({ where: started, select: { requestorId: true }, take: 10000 }),
-  ]);
-
-  const userSet = new Set<string>();
-  for (const s of sessionRows) {
-    if (s.creatorId) userSet.add(s.creatorId);
-    if (s.joinerId) userSet.add(s.joinerId);
-  }
-
-  const newUsersPerDay = await prisma.user.groupBy({ by: ["createdAt"], _count: { _all: true }, where: started });
-  const movesPerDay = await prisma.gameMove.groupBy({ by: ["createdAt"], _count: { _all: true }, where: started });
-  const activeDayMap = countRowsByDay(movesPerDay as unknown as { createdAt: Date; _count: { _all: number } }[]);
-  const newDayMap = countRowsByDay(newUsersPerDay as unknown as { createdAt: Date; _count: { _all: number } }[]);
-  const days = buildDaySeries(r.start, r.end);
-  const series = days.map((date) => ({
-    date,
-    newUsers: newDayMap.get(date) ?? 0,
-    activeUsers: activeDayMap.get(date) ?? 0,
-    returning: 0,
-  }));
-
-  // Most active players (by moves)
-  const askedBy = new Map<string, number>();
-  const answeredBy = new Map<string, number>();
-  for (const m of moveRows) {
-    askedBy.set(m.askedBy, (askedBy.get(m.askedBy) ?? 0) + 1);
-    answeredBy.set(m.answeredBy, (answeredBy.get(m.answeredBy) ?? 0) + 1);
-  }
-  const playerIds = Array.from(new Set([...askedBy.keys(), ...answeredBy.keys()]));
-  const topActiveIds = Array.from(askedBy.entries()).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([id]) => id);
-  const topAnsweredIds = Array.from(answeredBy.entries()).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([id]) => id);
-
-  // Top contributors
-  const contribByUser = new Map<string, number>();
-  const contribPhone = new Map<string, string>();
-  for (const c of contributionRows) {
-    if (c.userId) {
-      contribByUser.set(c.userId, (contribByUser.get(c.userId) ?? 0) + 1);
-      contribPhone.set(c.userId, c.userPhone);
-    }
-  }
-  const topContributorIds = Array.from(contribByUser.entries()).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([id]) => id);
-
-  // Most sessions participated
-  const sessionCount = new Map<string, number>();
-  for (const s of sessionRows) {
-    if (s.creatorId) sessionCount.set(s.creatorId, (sessionCount.get(s.creatorId) ?? 0) + 1);
-    if (s.joinerId) sessionCount.set(s.joinerId, (sessionCount.get(s.joinerId) ?? 0) + 1);
-  }
-  const topSessionIds = Array.from(sessionCount.entries()).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([id]) => id);
-
-  const wantedIds = new Set([...topActiveIds, ...topAnsweredIds, ...topContributorIds, ...topSessionIds]);
-  const users = await prisma.user.findMany({
-    where: { id: { in: Array.from(wantedIds) } },
-    select: { id: true, phone: true, name: true, displayName: true },
-    take: 100,
-  });
-  const userMap = new Map(users.map((u) => [u.id, { phone: maskPhone(u.phone), name: u.displayName ?? u.name ?? null }]));
-
-  const mapTop = (ids: string[], score: Map<string, number>) =>
-    ids
-      .map((id) => {
-        const meta = userMap.get(id);
-        return { userId: id, phone: meta?.phone ?? "", name: meta?.name ?? null, moves: score.get(id) ?? 0 };
-      })
-      .filter((x) => x.phone);
-
-  const usersContributing = new Set(contribByUser.keys()).size;
-  const usersReporting = new Set(reportRows.filter((x) => x.reporterId).map((x) => x.reporterId as string)).size;
-  const usersRequesting = new Set(requestRows.filter((x) => x.requestorId).map((x) => x.requestorId as string)).size;
-
-  return {
-    range: r,
-    totals: {
-      totalUsers,
-      newUsers,
-      activeUsers,
-      returningUsers: returning,
-      usersInSessions: userSet.size,
-      usersContributing,
-      usersReporting,
-      usersRequesting,
-    },
-    series,
-    platforms: { new: newUsers, returning },
-    top: {
-      mostActive: mapTop(topActiveIds, askedBy),
-      topContributors: topContributorIds
-        .map((id) => {
-          const meta = userMap.get(id);
-          return { userId: id, phone: meta?.phone ?? "", name: meta?.name ?? null, count: contribByUser.get(id) ?? 0 };
-        })
-        .filter((x) => x.phone),
-      mostAnswered: Array.from(answeredBy.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 20)
-        .map(([id, n]) => {
-          const meta = userMap.get(id);
-          return { userId: id, phone: meta?.phone ?? "", name: meta?.name ?? null, answered: n };
-        })
-        .filter((x) => x.phone),
-      mostSessions: Array.from(sessionCount.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 20)
-        .map(([id, n]) => {
-          const meta = userMap.get(id);
-          return { userId: id, phone: meta?.phone ?? "", name: meta?.name ?? null, sessions: n };
-        })
-        .filter((x) => x.phone),
-    },
   };
 }
 
@@ -690,7 +538,6 @@ export type ContributionAnalyticsResponse = {
   byCategory: { categoryId: string; name: string; count: number }[];
   byType: { type: string; count: number }[];
   aiConfidence: { bucket: string; count: number }[];
-  topContributors: { phone: string; count: number }[];
 };
 
 export async function getContributionAnalytics(from?: string, to?: string): Promise<ContributionAnalyticsResponse> {
@@ -708,7 +555,7 @@ export async function getContributionAnalytics(from?: string, to?: string): Prom
 
   const rows = await prisma.contribution.findMany({
     where: { ...started, aiResult: { not: Prisma.JsonNull } },
-    select: { aiResult: true, aiScore: true, status: true, createdAt: true, categoryId: true, userPhone: true },
+    select: { aiResult: true, aiScore: true, status: true, createdAt: true, categoryId: true },
     take: 20000,
   });
 
@@ -765,13 +612,6 @@ export async function getContributionAnalytics(from?: string, to?: string): Prom
     .sort((a, b) => b.count - a.count)
     .slice(0, 50);
 
-  const contribByPhone = new Map<string, number>();
-  for (const row of rows) contribByPhone.set(row.userPhone, (contribByPhone.get(row.userPhone) ?? 0) + 1);
-  const topContributors = Array.from(contribByPhone.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 20)
-    .map(([phone, count]) => ({ phone: maskPhone(phone), count }));
-
   return {
     range: r,
     totals: {
@@ -792,7 +632,6 @@ export async function getContributionAnalytics(from?: string, to?: string): Prom
     byCategory,
     byType: byType.map((t) => ({ type: t.type, count: t._count._all })).sort((a, b) => b.count - a.count),
     aiConfidence: Object.entries(confBuckets).map(([bucket, count]) => ({ bucket, count })),
-    topContributors,
   };
 }
 
@@ -1107,15 +946,9 @@ export async function getMonetizationAnalytics(from?: string, to?: string): Prom
   // Provider performance
   const providerIds = Array.from(new Set(gates.map((g) => g.providerId).filter((x): x is string => Boolean(x))));
   const providers = providerIds.length
-    ? await prisma.adProvider.findMany({ where: { id: { in: providerIds } }, select: { id: true, name: true, estimatedPayoutPerVerification: true, estimatedPayoutPerClick: true, estimatedPayoutPerImpression: true, fixedPayoutPerVerification: true, revenueModel: true } })
+    ? await prisma.adProvider.findMany({ where: { id: { in: providerIds } }, select: { id: true, name: true } })
     : [];
-  const providerName = new Map<string, { name: string; payoutRate: number }>();
-  for (const p of providers) {
-    const rate = p.fixedPayoutPerVerification > 0 || p.revenueModel === "FIXED"
-      ? p.fixedPayoutPerVerification
-      : p.estimatedPayoutPerVerification || p.estimatedPayoutPerClick;
-    providerName.set(p.id, { name: p.name, payoutRate: rate });
-  }
+  const providerName = new Map<string, string>(providers.map((p) => [p.id, p.name]));
 
   const [linkEventRows, codeEventRows, verifyEventRows, failEventRows, ledgerProviderRows] = await Promise.all([
     prisma.monetizationEvent.groupBy({ by: ["sessionId"], _count: { _all: true }, where: { type: "LINK_OPENED", ...started } }),
@@ -1135,7 +968,7 @@ export async function getMonetizationAnalytics(from?: string, to?: string): Prom
     const id = key;
     const cur = providerAgg.get(id ?? "none") ?? {
       providerId: id,
-      name: id ? providerName.get(id)?.name ?? "Unknown" : "No provider",
+      name: id ? providerName.get(id) ?? "Unknown" : "No provider",
       gates: 0,
       verified: 0,
       linkOpens: 0,
@@ -1395,14 +1228,13 @@ export async function getRevenueAnalytics(from?: string, to?: string): Promise<R
 
 export type TimeseriesResponse = {
   range: Range;
-  series: { date: string; users: number; sessions: number; moves: number; questions: number; contributions: number; reports: number; gates: number; messages: number; revenue: number }[];
+  series: { date: string; sessions: number; moves: number; questions: number; contributions: number; reports: number; gates: number; messages: number; revenue: number }[];
 };
 
 export async function getTimeseries(from?: string, to?: string): Promise<TimeseriesResponse> {
   const r = resolveRange(from, to);
   const started = inRange(r);
-  const [users, sessions, moves, questions, contributions, reports, gates, messages, revenue] = await Promise.all([
-    prisma.user.groupBy({ by: ["createdAt"], _count: { _all: true }, where: started }),
+  const [sessions, moves, questions, contributions, reports, gates, messages, revenue] = await Promise.all([
     prisma.session.groupBy({ by: ["createdAt"], _count: { _all: true }, where: started }),
     prisma.gameMove.groupBy({ by: ["createdAt"], _count: { _all: true }, where: started }),
     prisma.question.groupBy({ by: ["createdAt"], _count: { _all: true }, where: started }),
@@ -1415,7 +1247,6 @@ export async function getTimeseries(from?: string, to?: string): Promise<Timeser
 
   const toMap = countRowsByDay;
   const maps = {
-    users: toMap(users as unknown as { createdAt: Date; _count: { _all: number } }[]),
     sessions: toMap(sessions as unknown as { createdAt: Date; _count: { _all: number } }[]),
     moves: toMap(moves as unknown as { createdAt: Date; _count: { _all: number } }[]),
     questions: toMap(questions as unknown as { createdAt: Date; _count: { _all: number } }[]),
@@ -1435,7 +1266,6 @@ export async function getTimeseries(from?: string, to?: string): Promise<Timeser
 
   const series = buildDaySeries(r.start, r.end).map((date) => ({
     date,
-    users: maps.users.get(date) ?? 0,
     sessions: maps.sessions.get(date) ?? 0,
     moves: maps.moves.get(date) ?? 0,
     questions: maps.questions.get(date) ?? 0,
@@ -1447,36 +1277,6 @@ export async function getTimeseries(from?: string, to?: string): Promise<Timeser
   }));
 
   return { range: r, series };
-}
-
-export async function getTopAnalytics(from?: string, to?: string) {
-  const r = resolveRange(from, to);
-  const [topQuestions, topCategories, topContributors, topPlayers, topTemplates] = await Promise.all([
-    getTopQuestions(10),
-    getTopCategories(10),
-    getContributionAnalytics(from, to).then((c) => c.topContributors),
-    prisma.gameMove.groupBy({ by: ["answeredBy"], _count: { _all: true }, where: inRange(r), orderBy: { _count: { answeredBy: "desc" } }, take: 10 }),
-    getWhatsAppAdvanced(from, to).then((w) => w.templates.slice(0, 10)),
-  ]);
-
-  const answeredIds = topPlayers.map((p) => p.answeredBy);
-  const users = answeredIds.length
-    ? await prisma.user.findMany({ where: { id: { in: answeredIds } }, select: { id: true, phone: true, name: true, displayName: true } })
-    : [];
-  const userMap = new Map(users.map((u) => [u.id, { phone: maskPhone(u.phone), name: u.displayName ?? u.name ?? null }]));
-
-  return {
-    mostPlayedQuestions: topQuestions.map((q) => ({ id: q.id, text: q.text, type: q.type, category: q.category?.name ?? "", playsCount: q.playsCount, reportCount: q.reportCount })),
-    topCategories: topCategories.map((c) => ({ id: c.id, name: c.name, playCount: c.playCount, questionCount: c.questionCount, slug: c.slug, color: c.color })),
-    topContributors,
-    mostActivePlayers: topPlayers.map((p) => ({
-      userId: p.answeredBy,
-      phone: userMap.get(p.answeredBy)?.phone ?? "",
-      name: userMap.get(p.answeredBy)?.name ?? null,
-      answered: p._count._all,
-    })),
-    topTemplates,
-  };
 }
 
 // ============================================================
@@ -1543,7 +1343,7 @@ export async function renderAnalyticsCsv(dataset: string, from?: string, to?: st
       });
       return [
         ["Date", "Ticket", "Phone", "Question", "Type", "Status", "AI Score"].join(","),
-        ...rows.map((x) => [dayKey(x.createdAt), x.ticket, x.userPhone, x.question.replace(/,/g, " "), x.type, x.status, x.aiScore ?? ""].map(csvCell).join(",")),
+        ...rows.map((x) => [dayKey(x.createdAt), x.ticket, x.userPhone ?? "anonymous", x.question.replace(/,/g, " "), x.type, x.status, x.aiScore ?? ""].map(csvCell).join(",")),
       ].join("\n");
     }
     case "sessions": {
@@ -1559,18 +1359,6 @@ export async function renderAnalyticsCsv(dataset: string, from?: string, to?: st
       return [
         ["Date", "InviteCode", "Status", "State", "Round", "Turns", "Category", "StartedAt", "FinishedAt"].join(","),
         ...rows.map((x) => [dayKey(x.createdAt), x.inviteCode, x.status, x.state, x.round, x.turnsPlayed, catName.get(x.categoryId ?? "") ?? "", x.startedAt?.toISOString() ?? "", x.finishedAt?.toISOString() ?? ""].map(csvCell).join(",")),
-      ].join("\n");
-    }
-    case "users": {
-      const rows = await prisma.user.findMany({
-        where: { createdAt: { gte: r.start, lte: r.end } },
-        orderBy: { createdAt: "asc" },
-        select: { phone: true, name: true, displayName: true, status: true, totalSessions: true, totalAnswered: true, totalAsked: true, firstSeenAt: true, lastSeenAt: true, createdAt: true },
-        take: 20000,
-      });
-      return [
-        ["Date", "Phone", "Name", "Status", "Sessions", "Answered", "Asked", "FirstSeen", "LastSeen"].join(","),
-        ...rows.map((x) => [dayKey(x.createdAt), x.phone, x.displayName ?? x.name ?? "", x.status, x.totalSessions, x.totalAnswered, x.totalAsked, x.firstSeenAt?.toISOString() ?? "", x.lastSeenAt?.toISOString() ?? ""].map(csvCell).join(",")),
       ].join("\n");
     }
     case "questions": {
@@ -1628,25 +1416,9 @@ export async function renderAnalyticsCsv(dataset: string, from?: string, to?: st
       // platform overview series
       const data = await getTimeseries(from, to);
       return [
-        ["date", "users", "sessions", "moves", "questions", "contributions", "reports", "gates", "messages", "revenue"].join(","),
-        ...data.series.map((p) => [p.date, p.users, p.sessions, p.moves, p.questions, p.contributions, p.reports, p.gates, p.messages, p.revenue].join(",")),
+        ["date", "sessions", "moves", "questions", "contributions", "reports", "gates", "messages", "revenue"].join(","),
+        ...data.series.map((p) => [p.date, p.sessions, p.moves, p.questions, p.contributions, p.reports, p.gates, p.messages, p.revenue].join(",")),
       ].join("\n");
     }
   }
-}
-
-// Expose the revenue settings list helper for the settings admin UI.
-export async function getAnalyticsConfig() {
-  const rows = await getAllSettings();
-  const s = settingsToRecord(rows);
-  const revenueSettings = await getRevenueSettings();
-  return {
-    analyticsEnabled: settingBool(s, "analytics.enabled", true),
-    analyticsRetentionDays: Math.max(1, Number(s["analytics.retentionDays"] || 365)),
-    revenueEstimationEnabled: settingBool(s, "revenue.estimationEnabled", true),
-    revenueEstimationMode: s["revenue.estimationMode"] || "provider_rates",
-    currency: revenueSettings.currency,
-    revenuePerVerification: revenueSettings.revenuePerVerification,
-    payoutRate: revenueSettings.payoutRate,
-  };
 }

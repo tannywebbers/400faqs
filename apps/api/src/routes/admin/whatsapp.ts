@@ -1,10 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
-import { SessionStatus, Prisma } from "@prisma/client";
+import { SessionStatus } from "@prisma/client";
 import { ok, AppError } from "../../lib/response";
 import { prisma } from "../../lib/prisma";
 import { validate } from "../../middleware/validate";
-import { sendText } from "../../lib/whatsapp";
 import { type AdminRequest } from "../../middleware/auth";
 import {
   getMaskedConfig,
@@ -14,13 +13,7 @@ import {
   regenerateVerifyToken,
 } from "../../services/whatsapp-config";
 import { sendTextMessage, getMessageLogs } from "../../services/messaging";
-import {
-  validateTemplate,
-  markTemplateSubmitted,
-  markTemplateMetaStatus,
-  getTemplateStats,
-  previewTemplatePayload,
-} from "../../services/template.service";
+import { getTemplateStats, syncTemplatesFromMeta } from "../../services/template.service";
 import { logger } from "../../lib/logger";
 
 export const whatsappRouter = Router();
@@ -121,7 +114,7 @@ whatsappRouter.post("/webhook/regenerate", async (req, res) => {
   res.json(ok(result));
 });
 
-// ── Message Templates ────────────────────────────────────────
+// ── Message Templates (Meta is the source of truth) ──────────
 
 whatsappRouter.get("/templates", async (req, res) => {
   const page = Math.max(Number(req.query.page ?? 1), 1);
@@ -141,212 +134,30 @@ whatsappRouter.get("/templates", async (req, res) => {
       orderBy: { updatedAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
-      include: { _count: { select: { campaigns: true } } },
     }),
   ]);
 
   res.json(ok(items, { page, limit, total, totalPages: Math.ceil(total / limit) }));
 });
 
-const templateSchema = z.object({
-  body: z.object({
-    name: z.string().min(1).max(100),
-    category: z.string().default("UTILITY"),
-    language: z.string().default("en"),
-    header: z.string().max(60).optional(),
-    body: z.string().min(1).max(1024),
-    footer: z.string().max(60).optional(),
-    buttons: z
-      .array(z.object({ id: z.string(), title: z.string() }))
-      .max(3)
-      .optional(),
-    status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).default("DRAFT"),
-  }),
-});
-
-whatsappRouter.post("/templates", validate(templateSchema), async (req, res) => {
-  const admin = (req as unknown as AdminRequest).admin;
-  const body = (req as unknown as { validated: { body: z.infer<typeof templateSchema>["body"] } }).validated.body;
-
-  const template = await prisma.messageTemplate.create({
-    data: {
-      name: body.name,
-      category: body.category,
-      language: body.language,
-      header: body.header ?? null,
-      body: body.body,
-      footer: body.footer ?? null,
-      buttons: (body.buttons ?? null) as Prisma.InputJsonValue,
-      status: body.status,
-    },
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      adminId: admin.id,
-      action: "TEMPLATE_CREATE",
-      targetType: "message_template",
-      targetId: template.id,
-      details: { name: template.name },
-    },
-  });
-
-  res.json(ok(template));
-});
-
-const templateUpdateSchema = z.object({
-  params: z.object({ id: z.string() }),
-  body: z.object({
-    name: z.string().min(1).max(100).optional(),
-    category: z.string().optional(),
-    language: z.string().optional(),
-    header: z.string().max(60).optional().nullable(),
-    body: z.string().min(1).max(1024).optional(),
-    footer: z.string().max(60).optional().nullable(),
-    buttons: z
-      .array(z.object({ id: z.string(), title: z.string() }))
-      .max(3)
-      .optional()
-      .nullable(),
-    status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).optional(),
-  }),
-});
-
-whatsappRouter.put("/templates/:id", validate(templateUpdateSchema), async (req, res) => {
-  const admin = (req as unknown as AdminRequest).admin;
-  const { id } = (req as unknown as { validated: { params: { id: string } } }).validated.params;
-  const body = (req as unknown as { validated: { body: Record<string, unknown> } }).validated.body;
-
-  const existing = await prisma.messageTemplate.findUnique({ where: { id } });
-  if (!existing) throw new AppError(404, "Template not found");
-
-  const updated = await prisma.messageTemplate.update({
-    where: { id },
-    data: body,
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      adminId: admin.id,
-      action: "TEMPLATE_UPDATE",
-      targetType: "message_template",
-      targetId: id,
-      details: { name: updated.name },
-    },
-  });
-
-  res.json(ok(updated));
-});
-
-whatsappRouter.delete("/templates/:id", async (req, res) => {
-  const admin = (req as unknown as AdminRequest).admin;
-  const { id } = req.params;
-
-  const existing = await prisma.messageTemplate.findUnique({ where: { id } });
-  if (!existing) throw new AppError(404, "Template not found");
-
-  await prisma.messageTemplate.delete({ where: { id } });
-
-  await prisma.auditLog.create({
-    data: {
-      adminId: admin.id,
-      action: "TEMPLATE_DELETE",
-      targetType: "message_template",
-      targetId: id,
-      details: { name: existing.name },
-    },
-  });
-
-  res.json(ok({ message: "Template deleted" }));
-});
-
-// ── Template library (Phase 10) ──────────────────────────────
-
 whatsappRouter.get("/templates/stats", async (_req, res) => {
   res.json(ok(await getTemplateStats()));
 });
 
-const templateValidateSchema = z.object({
-  body: z.object({
-    name: z.string(),
-    category: z.string().default("UTILITY"),
-    language: z.string().default("en"),
-    header: z.string().nullable().optional(),
-    body: z.string(),
-    footer: z.string().nullable().optional(),
-    buttons: z.array(z.object({ id: z.string(), title: z.string() })).max(3).optional(),
-  }),
-});
-
-whatsappRouter.post("/templates/validate", validate(templateValidateSchema), async (req, res) => {
-  const body = (req as unknown as { validated: { body: z.infer<typeof templateValidateSchema>["body"] } }).validated.body;
-  const validation = await validateTemplate(body);
-  res.json(ok({ validation, preview: previewTemplatePayload(body) }));
-});
-
-whatsappRouter.post("/templates/:id/submit", async (req, res) => {
+whatsappRouter.post("/templates/sync", async (req, res) => {
   const admin = (req as unknown as AdminRequest).admin;
-  const template = await prisma.messageTemplate.findUnique({ where: { id: req.params.id } });
-  if (!template) throw new AppError(404, "Template not found");
-
-  const validation = await validateTemplate({
-    name: template.name,
-    category: template.category,
-    language: template.language,
-    header: template.header,
-    body: template.body,
-    footer: template.footer,
-    buttons: template.buttons,
-  });
-  if (!validation.ok) throw new AppError(400, "Template is not valid", validation.errors);
-
-  const result = await markTemplateSubmitted(template.id);
+  const result = await syncTemplatesFromMeta();
 
   await prisma.auditLog.create({
     data: {
       adminId: admin.id,
-      action: "TEMPLATE_SUBMITTED",
-      targetType: "message_template",
-      targetId: template.id,
-      details: { name: template.name, ...result },
+      action: "TEMPLATES_SYNCED",
+      targetType: "whatsapp",
+      details: { count: result.count, created: result.created, updated: result.updated, warning: result.warning ?? null },
     },
   });
 
-  res.json(ok({ ...result, validation }));
-});
-
-const templateMetaStatusSchema = z.object({
-  params: z.object({ id: z.string() }),
-  body: z.object({
-    metaStatus: z.string().min(1).max(50),
-    reason: z.string().max(2000).optional(),
-  }),
-});
-
-whatsappRouter.post("/templates/:id/meta-status", validate(templateMetaStatusSchema), async (req, res) => {
-  const admin = (req as unknown as AdminRequest).admin;
-  const { id } = (req as unknown as { validated: { params: { id: string } } }).validated.params;
-  const body = (req as unknown as { validated: { body: { metaStatus: string; reason?: string } } }).validated.body;
-
-  await markTemplateMetaStatus(id, { metaStatus: body.metaStatus, reason: body.reason });
-
-  await prisma.auditLog.create({
-    data: {
-      adminId: admin.id,
-      action: "TEMPLATE_META_STATUS_CHANGED",
-      targetType: "message_template",
-      targetId: id,
-      details: { metaStatus: body.metaStatus, reason: body.reason ?? null },
-    },
-  });
-
-  res.json(ok({ message: "Meta status updated" }));
-});
-
-whatsappRouter.post("/templates/:id/preview", async (req, res) => {
-  const template = await prisma.messageTemplate.findUnique({ where: { id: req.params.id } });
-  if (!template) throw new AppError(404, "Template not found");
-  res.json(ok({ preview: previewTemplatePayload(template) }));
+  res.json(ok(result));
 });
 
 // ── Message Logs ─────────────────────────────────────────────

@@ -9,7 +9,6 @@ export const QUEUES = {
   moderation: "moderation",
   game: "game",
   notification: "notification",
-  campaign: "campaign",
   snapshot: "snapshot",
 } as const;
 

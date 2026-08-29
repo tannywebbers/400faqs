@@ -46,7 +46,7 @@ type Contribution = {
   id: string;
   ticket: string;
   question: string;
-  userPhone: string;
+  userPhone: string | null;
   type: "TRUTH" | "DARE" | "NORMAL";
   status: "PENDING" | "APPROVED" | "REJECTED" | "FLAGGED";
   aiScore: number | null;
@@ -185,7 +185,7 @@ export default function AdminContributionsPage() {
                     <span className="text-sm">{c.category.name}</span>
                   </TableCell>
                   <TableCell>
-                    <span className="font-mono text-xs">{maskPhone(c.userPhone)}</span>
+                    <span className="font-mono text-xs">{c.userPhone ? maskPhone(c.userPhone) : "Anonymous"}</span>
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col gap-1">
@@ -254,7 +254,7 @@ export default function AdminContributionsPage() {
                   <Badge variant={inspecting.type === "TRUTH" ? "purple" : inspecting.type === "DARE" ? "orange" : "gray"}>{inspecting.type}</Badge>
                   <span>Category: {inspecting.category.name}</span>
                   <span>Ticket: {inspecting.ticket}</span>
-                  <span>Phone: {maskPhone(inspecting.userPhone)}</span>
+                  <span>Submitter: {inspecting.userPhone ? maskPhone(inspecting.userPhone) : "Anonymous"}</span>
                   <span>{formatDateTime(inspecting.createdAt)}</span>
                 </div>
                 <div className="mt-2 flex items-center gap-2">

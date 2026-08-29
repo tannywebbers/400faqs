@@ -1,7 +1,6 @@
 import { NotificationType, type Notification, type Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { enqueue } from "../lib/queue";
-import { config } from "../config";
 
 // ============================================================
 // Notification service.
@@ -81,55 +80,4 @@ export async function notifyAdmins(input: Omit<NotifyInput, "adminId">): Promise
     created.push(await createNotification({ ...input, adminId: a.id, channel: "SYSTEM" }));
   }
   return created;
-}
-
-// ============================================================
-// Broadcast — SYSTEM warning center: creates a notification row
-// per targeted user and hands delivery to the "broadcast" worker
-// which rate-limits WhatsApp sends.
-// ============================================================
-
-export type BroadcastAudience = "ALL" | "ACTIVE" | "INACTIVE";
-
-export async function broadcastNotification(input: {
-  title: string;
-  message: string;
-  type?: NotificationType;
-  link?: string;
-  audience: BroadcastAudience;
-  channel?: "WEB" | "WHATSAPP";
-}): Promise<{ recipients: number }> {
-  const channel = input.channel ?? "WHATSAPP";
-  const max = config.notifications.maxBroadcastRecipients;
-
-  const last30d = new Date(Date.now() - 30 * 86_400_000);
-  const where: Prisma.UserWhereInput = { status: "ACTIVE" };
-  if (input.audience === "ACTIVE") where.lastSeenAt = { gte: last30d };
-  if (input.audience === "INACTIVE") where.OR = [{ lastSeenAt: null }, { lastSeenAt: { lt: last30d } }];
-
-  const users = await prisma.user.findMany({
-    where,
-    select: { id: true, phone: true },
-    orderBy: { lastSeenAt: "desc" },
-    take: max,
-  });
-  if (users.length === 0) return { recipients: 0 };
-
-  await prisma.notification.createMany({
-    data: users.map((u) => ({
-      userId: u.id,
-      phone: u.phone,
-      type: input.type ?? NotificationType.BROADCAST,
-      channel,
-      status: channel === "WEB" ? "SENT" : "PENDING",
-      title: input.title,
-      message: input.message,
-      link: input.link ?? null,
-    })),
-  });
-
-  if (channel === "WHATSAPP") {
-    await enqueue("notification", "broadcast", {}, { attempts: 1, jobId: `broadcast-${Date.now()}` });
-  }
-  return { recipients: users.length };
 }

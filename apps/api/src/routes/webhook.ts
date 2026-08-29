@@ -51,47 +51,14 @@ async function clearProcessed(eventId: string): Promise<void> {
   await prisma.processedEvent.deleteMany({ where: { eventId } }).catch(() => undefined);
 }
 
-// Campaign delivery tracking: reflect tombstone statuses from the webhook
-// onto CampaignDelivery rows and the parent campaign counters. Each stage is
-// isolated so a single stale delivery row can never break a status batch.
-async function syncDeliveryFromStatus(deliveryId: string, status: string): Promise<void> {
-  const patch: Record<string, unknown> = { status };
-  const now = new Date();
-  if (status === "delivered") patch.deliveredAt = now;
-  else if (status === "read") patch.readAt = now;
-
-  await prisma.campaignDelivery.update({ where: { id: deliveryId }, data: patch }).catch(() => undefined);
-
-  const campaignId = (
-    await prisma.campaignDelivery.findUnique({ where: { id: deliveryId }, select: { campaignId: true } }).catch(() => undefined)
-  )?.campaignId;
-  if (!campaignId) return;
-
-  const num: Record<string, number> = {};
-  if (status === "delivered") num.deliveredCount = 1;
-  else if (status === "read") num.readCount = 1;
-  if (Object.keys(num).length > 0) {
-    await prisma.campaign.update({ where: { id: campaignId }, data: num }).catch(() => undefined);
-  }
-}
-
 async function handleDeliveryStatus(status: { id?: string; status?: string }): Promise<void> {
   if (!status.id || !status.status) return;
 
-  const updated = await prisma.messageLog
+  await prisma.messageLog
     .updateMany({ where: { waMessageId: status.id }, data: { status: status.status } })
     .catch(() => undefined);
 
   emitAdminEvent("whatsapp:status", { id: status.id, status: status.status });
-
-  if (updated && updated.count > 0) {
-    const log = await prisma.messageLog
-      .findFirst({ where: { waMessageId: status.id }, select: { campaignDeliveryId: true } })
-      .catch(() => undefined);
-    if (log?.campaignDeliveryId) {
-      await syncDeliveryFromStatus(log.campaignDeliveryId, status.status);
-    }
-  }
 }
 
 // Verification (GET) - WhatsApp requires this on the same URL

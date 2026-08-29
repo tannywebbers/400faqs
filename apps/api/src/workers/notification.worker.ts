@@ -1,10 +1,6 @@
-import { createWorker, enqueue } from "../lib/queue";
+import { createWorker } from "../lib/queue";
 import { prisma } from "../lib/prisma";
 import { sendTextMessage } from "../services/messaging";
-import { logger } from "../lib/logger";
-
-const BROADCAST_BATCH = 50;
-const BROADCAST_RESCHEDULE_MS = 8_000;
 
 async function claim(id: string): Promise<boolean> {
   const res = await prisma.notification.updateMany({
@@ -56,41 +52,8 @@ export async function deliverOne(notificationId: string): Promise<void> {
   }
 }
 
-async function runBroadcastBatch(): Promise<void> {
-  const batch = await prisma.notification.findMany({
-    where: { channel: "WHATSAPP", status: "PENDING" },
-    orderBy: { createdAt: "asc" },
-    take: BROADCAST_BATCH,
-    select: { id: true },
-  });
-
-  for (const { id } of batch) {
-    try {
-      await deliverOne(id);
-    } catch (err) {
-      logger.warn("[worker:notification] broadcast item failed", { id, error: (err as Error).message });
-    }
-  }
-
-  const remaining = await prisma.notification.count({
-    where: { channel: "WHATSAPP", status: { in: ["PENDING", "SENDING"] } },
-  });
-  if (remaining > 0 && batch.length > 0) {
-    await enqueue("notification", "broadcast", {}, {
-      attempts: 1,
-      delay: BROADCAST_RESCHEDULE_MS,
-      jobId: "broadcast-chain",
-    });
-  }
-}
-
 export function startNotificationWorker(): void {
   createWorker("notification", async (job) => {
-    if (job.name === "broadcast") {
-      await runBroadcastBatch();
-      return;
-    }
-
     const { id } = job.data as { id: string };
     await deliverOne(id);
   });

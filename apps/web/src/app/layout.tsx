@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { WhatsAppFloat } from "@/components/whatsapp-float";
 import { apiUrl } from "@/lib/api";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -54,6 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="flex min-h-screen flex-col">
             {children}
           </div>
+          <WhatsAppFloat />
         </Providers>
       </body>
     </html>

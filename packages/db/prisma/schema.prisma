@@ -330,7 +330,7 @@ model GameMove {
 model Contribution {
   id              String             @id @default(cuid())
   ticket          String             @unique
-  userPhone       String
+  userPhone       String?
   userId          String?
   user            User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   categoryId      String

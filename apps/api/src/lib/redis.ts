@@ -50,7 +50,6 @@ export const cacheKeys = {
   publicCategories: "cache:public:categories",
   publicFaqs: "cache:public:faqs",
   publicArticles: "cache:public:articles",
-  leaderboard: "cache:public:leaderboard",
   stats: "cache:public:stats",
 };
 

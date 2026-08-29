@@ -37,7 +37,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/empty-state";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { formatNumber, formatDate, maskPhone } from "@/lib/utils";
+import { formatNumber, formatDate } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
 // ── API response shapes ─────────────────────────────────────────
@@ -66,20 +66,7 @@ type AdminAnalytics = {
     categoryRequests: number;
     messages: number;
     revenueLedger: number;
-    campaigns: number;
   }>;
-};
-
-type UserAnalyticsResponse = {
-  totals: Record<string, number>;
-  series: { date: string; newUsers: number; activeUsers: number; returning: number }[];
-  platforms: { new: number; returning: number };
-  top: {
-    mostActive: { userId: string; phone: string; name: string | null; moves: number }[];
-    topContributors: { userId: string | null; phone: string; name: string | null; count: number }[];
-    mostAnswered: { userId: string; phone: string; name: string | null; answered: number }[];
-    mostSessions: { userId: string; phone: string; name: string | null; sessions: number }[];
-  };
 };
 
 type SessionAnalyticsResponse = {
@@ -104,7 +91,6 @@ type ContributionAnalyticsResponse = {
   byCategory: { categoryId: string; name: string; count: number }[];
   byType: { type: string; count: number }[];
   aiConfidence: { bucket: string; count: number }[];
-  topContributors: { phone: string; count: number }[];
 };
 
 type AIAnalyticsResponse = {
@@ -190,7 +176,7 @@ type SnapshotRow = {
 
 // ── Shared helpers ──────────────────────────────────────────────
 
-const TAB_KEYS = ["overview", "users", "sessions", "content", "contributions", "ai", "whatsapp", "monetization", "revenue", "categories"] as const;
+const TAB_KEYS = ["overview", "sessions", "content", "contributions", "ai", "whatsapp", "monetization", "revenue", "categories"] as const;
 
 function TrendBadge({ t }: { t: Trend }) {
   if (t.changePct === null || t.changePct === 0) {
@@ -257,15 +243,6 @@ function TableSkeleton({ rows, cols }: { rows: number; cols: number }) {
   );
 }
 
-function PhoneCell({ phone, name }: { phone: string; name: string | null }) {
-  return (
-    <div className="min-w-0">
-      <p className="truncate font-medium">{name || maskPhone(phone)}</p>
-      {name && <p className="text-xs text-muted-foreground">{maskPhone(phone)}</p>}
-    </div>
-  );
-}
-
 // ── Page ─────────────────────────────────────────────────────────
 
 export default function AdminAnalyticsPage() {
@@ -329,12 +306,6 @@ export default function AdminAnalyticsPage() {
     queryFn: () => apiFetch(`/api/admin/analytics?${params()}`, { token }),
     enabled: tab === "overview",
     placeholderData: (prev) => prev,
-  });
-
-  const usersQuery = useQuery<UserAnalyticsResponse>({
-    queryKey: ["admin-analytics-users", from, to],
-    queryFn: () => apiFetch(`/api/admin/analytics/users?${params()}`, { token }),
-    enabled: tab === "users",
   });
 
   const sessionsQuery = useQuery<SessionAnalyticsResponse>({
@@ -453,7 +424,6 @@ export default function AdminAnalyticsPage() {
             aria-label="Export dataset"
           >
             <option value="overview">Overview series</option>
-            <option value="users">Users</option>
             <option value="sessions">Sessions</option>
             <option value="questions">Questions</option>
             <option value="contributions">Contributions</option>
@@ -508,7 +478,6 @@ export default function AdminAnalyticsPage() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as (typeof TAB_KEYS)[number])}>
         <TabsList className="flex flex-wrap h-auto w-full justify-start overflow-x-auto rounded-xl">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="sessions">Sessions</TabsTrigger>
           <TabsTrigger value="content">Content</TabsTrigger>
           <TabsTrigger value="contributions">Contributions</TabsTrigger>
@@ -643,134 +612,6 @@ export default function AdminAnalyticsPage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
-
-        {/* ── USERS ── */}
-        <TabsContent value="users" className="space-y-6">
-          {usersQuery.data ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <MiniStat label="Total users" value={formatNumber(usersQuery.data.totals.totalUsers ?? 0)} />
-              <MiniStat label="New in range" value={formatNumber(usersQuery.data.totals.newUsers ?? 0)} />
-              <MiniStat label="Active" value={formatNumber(usersQuery.data.totals.activeUsers ?? 0)} />
-              <MiniStat label="Returning" value={formatNumber(usersQuery.data.totals.returningUsers ?? 0)} />
-              <MiniStat label="In sessions" value={formatNumber(usersQuery.data.totals.usersInSessions ?? 0)} />
-              <MiniStat label="Contributing" value={formatNumber(usersQuery.data.totals.usersContributing ?? 0)} />
-              <MiniStat label="Reporting" value={formatNumber(usersQuery.data.totals.usersReporting ?? 0)} />
-              <MiniStat label="Requesting" value={formatNumber(usersQuery.data.totals.usersRequesting ?? 0)} />
-            </div>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <Skeleton key={i} className="h-24 rounded-2xl" />
-              ))}
-            </div>
-          )}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">New vs active users per day</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {(usersQuery.data?.series ?? []).length === 0 ? (
-                <EmptyState title="No data" className="py-12" />
-              ) : (
-                <ResponsiveContainer width="100%" height={260}>
-                  <AreaChart data={usersQuery.data!.series} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v: string) => v.slice(5)} />
-                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                    <Tooltip />
-                    <Legend />
-                    <Area type="monotone" dataKey="newUsers" stackId="1" stroke="#2F80ED" fill="#2F80ED" fillOpacity={0.15} />
-                    <Area type="monotone" dataKey="activeUsers" stackId="1" stroke="#27AE60" fill="#27AE60" fillOpacity={0.15} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
-          {usersQuery.data && (
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Most active players</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow><TableHead>User</TableHead><TableHead className="text-right">Moves</TableHead></TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {usersQuery.data.top.mostActive.map((u) => (
-                        <TableRow key={u.userId}>
-                          <TableCell><PhoneCell phone={u.phone} name={u.name} /></TableCell>
-                          <TableCell className="text-right">{u.moves}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Top contributors</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow><TableHead>User</TableHead><TableHead className="text-right">Contributions</TableHead></TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {usersQuery.data.top.topContributors.map((u) => (
-                        <TableRow key={u.userId ?? u.phone}>
-                          <TableCell><PhoneCell phone={u.phone} name={u.name} /></TableCell>
-                          <TableCell className="text-right">{u.count}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Most answered</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow><TableHead>User</TableHead><TableHead className="text-right">Answered</TableHead></TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {usersQuery.data.top.mostAnswered.map((u) => (
-                        <TableRow key={u.userId}>
-                          <TableCell><PhoneCell phone={u.phone} name={u.name} /></TableCell>
-                          <TableCell className="text-right">{u.answered}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Most sessions</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow><TableHead>User</TableHead><TableHead className="text-right">Sessions</TableHead></TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {usersQuery.data.top.mostSessions.map((u) => (
-                        <TableRow key={u.userId}>
-                          <TableCell><PhoneCell phone={u.phone} name={u.name} /></TableCell>
-                          <TableCell className="text-right">{u.sessions}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            </div>
-          )}
         </TabsContent>
 
         {/* ── SESSIONS ── */}
@@ -1050,22 +891,6 @@ export default function AdminAnalyticsPage() {
                       <TableRow key={b.bucket}>
                         <TableCell className="font-medium">{b.bucket}</TableCell>
                         <TableCell className="text-right">{b.count}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader><CardTitle className="text-base">Top contributors</CardTitle></CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader><TableRow><TableHead>Phone</TableHead><TableHead className="text-right">Contributions</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    {(contributionsQuery.data?.topContributors ?? []).map((u, i) => (
-                      <TableRow key={u.phone + i}>
-                        <TableCell className="font-medium">{maskPhone(u.phone)}</TableCell>
-                        <TableCell className="text-right">{u.count}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

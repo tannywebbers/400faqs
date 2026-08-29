@@ -12,9 +12,6 @@ import {
   FolderPlus,
   Star,
   BookOpen,
-  Users,
-  Award,
-  Megaphone,
   Bell,
   History,
   MessageCircle,
@@ -25,7 +22,6 @@ import {
   PlayCircle,
   CreditCard,
   BarChart3,
-  Send,
   Wallet,
   Menu,
   X,
@@ -41,7 +37,6 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
     items: [
       { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
       { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
-      { href: "/admin/campaigns", label: "Campaigns", icon: Send },
       { href: "/admin/revenue", label: "Revenue", icon: Wallet },
     ],
   },
@@ -52,8 +47,6 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
       { href: "/admin/questions", label: "Questions", icon: HelpCircle },
       { href: "/admin/faqs", label: "FAQs", icon: Star },
       { href: "/admin/articles", label: "Help Articles", icon: BookOpen },
-      { href: "/admin/ads", label: "Ads", icon: Megaphone },
-      { href: "/admin/badges", label: "Badges", icon: Award },
     ],
   },
   {
@@ -66,12 +59,21 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
     ],
   },
   {
+    label: "WhatsApp",
+    items: [
+      { href: "/admin/whatsapp", label: "WhatsApp", icon: MessageCircle },
+      { href: "/admin/sessions", label: "Sessions", icon: PlayCircle },
+    ],
+  },
+  {
+    label: "Monetization",
+    items: [
+      { href: "/admin/monetization", label: "Monetization", icon: CreditCard },
+    ],
+  },
+  {
     label: "System",
     items: [
-      { href: "/admin/users", label: "Users", icon: Users },
-      { href: "/admin/sessions", label: "Sessions", icon: PlayCircle },
-      { href: "/admin/whatsapp", label: "WhatsApp", icon: MessageCircle },
-      { href: "/admin/monetization", label: "Monetization", icon: CreditCard },
       { href: "/admin/notifications", label: "Notifications", icon: Bell },
       { href: "/admin/health", label: "Health", icon: Activity },
       { href: "/admin/jobs", label: "Jobs", icon: Hammer },
