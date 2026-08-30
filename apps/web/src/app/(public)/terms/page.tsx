@@ -15,7 +15,7 @@ async function getSettings() {
   return {} as Record<string, string>;
 }
 
-export const metadata: Metadata = { title: "Terms of Service", description: "The terms governing your use of 400QUES." };
+export const metadata: Metadata = { title: "Terms of Service", description: "The terms governing your use of 400faqs." };
 
 export default async function TermsPage() {
   const settings = await getSettings();

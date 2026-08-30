@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const KEY = "400ques_phone";
+const KEY = "400faqs_phone";
 
 export function getStoredPhone(): string {
   if (typeof window === "undefined") return "";

@@ -1,5 +1,5 @@
 // ============================================================
-// Centralized 400QUES WhatsApp bot message templates
+// Centralized 400faqs WhatsApp bot message templates
 // All user-facing strings live here.
 // ============================================================
 
@@ -13,7 +13,7 @@ export const messages = {
     const head = name ? `Hello, ${name} 👋` : "Hello 👋";
     return (
       `${head}\n\n` +
-      `Welcome to 400QUES 🎉\n\n` +
+      `Welcome to 400faqs 🎉\n\n` +
       `A WhatsApp questions game where you can challenge someone to answer hundreds of questions.\n\n` +
       `/start — Start a new session\n` +
       `/manage — Manage your active session\n` +
@@ -24,7 +24,7 @@ export const messages = {
 
   help(): string {
     return (
-      `*400QUES — Help* 🎮\n\n` +
+      `*400faqs — Help* 🎮\n\n` +
       `/start — create a new session\n` +
       `/invite — share your invite again\n` +
       `/manage — view your session\n` +
@@ -43,22 +43,22 @@ export const messages = {
 
   alreadyInSession(): string {
     return (
-      "You already have an active 400QUES session.\n\n" +
+      "You already have an active 400faqs session.\n\n" +
       "Manage or end your current session before joining another.\n\n" +
       "Send /manage to view it or /end to stop it."
     );
   },
 
   selfJoin(): string {
-    return "You can't join your own 400QUES session.\n\nSend the invitation to someone else.";
+    return "You can't join your own 400faqs session.\n\nSend the invitation to someone else.";
   },
 
   invalidInvitation(): string {
-    return "Sorry, this 400QUES invitation is invalid or has expired.\n\nAsk the session creator to generate a new invitation.";
+    return "Sorry, this 400faqs invitation is invalid or has expired.\n\nAsk the session creator to generate a new invitation.";
   },
 
   expiredInvitation(): string {
-    return "Sorry, this 400QUES invitation has expired.\n\nAsk the session creator to generate a new invitation.";
+    return "Sorry, this 400faqs invitation has expired.\n\nAsk the session creator to generate a new invitation.";
   },
 
   inviteExpired(code: string): string {
@@ -71,7 +71,7 @@ export const messages = {
 
   sessionCreated(code: string, inviteUrl: string): string {
     return (
-      `*Welcome to 400QUES!* 🎮\n\n` +
+      `*Welcome to 400faqs!* 🎮\n\n` +
       `Your session is ready.\n\n` +
       `📌 *Invite code: ${code}*\n\n` +
       `Share this code with a friend so they can join.` +
@@ -88,7 +88,7 @@ export const messages = {
   },
 
   invitationBody(code: string): string {
-    return `Join my 400QUES game 🎮\n\nSession: ${code}`;
+    return `Join my 400faqs game 🎮\n\nSession: ${code}`;
   },
 
   waitingForOpponent(): string {
@@ -105,7 +105,7 @@ export const messages = {
   },
 
   bothConnected(): string {
-    return "🎮 You're connected!\n\nYou are now playing 400QUES.\n\nThe session creator will choose the category.";
+    return "🎮 You're connected!\n\nYou are now playing 400faqs.\n\nThe session creator will choose the category.";
   },
 
   chooseCategory(): string {
@@ -233,11 +233,11 @@ export const messages = {
   },
 
   sessionEnded(): string {
-    return "This 400QUES session has ended.\n\nSend /start to play again!";
+    return "This 400faqs session has ended.\n\nSend /start to play again!";
   },
 
   playerLeft(name: string): string {
-    return `${name} left the session.\n\nThis 400QUES session has ended.\n\nSend /start to play again!`;
+    return `${name} left the session.\n\nThis 400faqs session has ended.\n\nSend /start to play again!`;
   },
 
   gameOver(turns: number, winnerName: string, winnerAsked: number): string {
@@ -282,7 +282,7 @@ export const messages = {
   },
 
   systemBusy(): string {
-    return "⚠️ *400QUES is having a moment.*\n\nYour session is safe. Send /manage or /status to pick up where you left off.";
+    return "⚠️ *400faqs is having a moment.*\n\nYour session is safe. Send /manage or /status to pick up where you left off.";
   },
 
   retrying(): string {
@@ -308,7 +308,7 @@ export const messages = {
     const lines: string[] = [];
     lines.push("Welcome back 👋");
     lines.push("");
-    lines.push("You have an active 400QUES session.");
+    lines.push("You have an active 400faqs session.");
     lines.push("");
     if (session.categoryName) lines.push(`Category: ${session.categoryName}`);
     lines.push(`Round: ${session.round}`);
@@ -327,7 +327,7 @@ export const messages = {
   verificationRequired(link: string): string {
     return (
       `🔒 *Quick verification*\n\n` +
-      `To keep 400QUES free for everyone, please complete a short step before your next turn.\n\n` +
+      `To keep 400faqs free for everyone, please complete a short step before your next turn.\n\n` +
       `1. Tap this link\n${link}\n` +
       `2. Wait a few seconds\n` +
       `3. Copy your verification code\n` +

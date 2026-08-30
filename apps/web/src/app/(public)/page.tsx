@@ -46,7 +46,7 @@ export default async function HomePage() {
     fetchJson<FaqRow[]>("/api/public/faqs"),
   ]);
 
-  const siteName = settings?.["site.name"] ?? "400QUES";
+  const siteName = settings?.["site.name"] ?? "400faqs";
   const tagline = settings?.["site.tagline"] ?? "The Ultimate WhatsApp Questions Game";
   const heroBadge = settings?.["site.hero.badge"] ?? "Play inside WhatsApp";
   const heroSubtitle = settings?.["site.hero.subtitle"] ?? "Two friends. One WhatsApp chat. Hundreds of questions.";

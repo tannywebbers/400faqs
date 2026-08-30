@@ -126,7 +126,7 @@ export function generateVerificationCode(type: "numeric" | "alphanumeric", lengt
 }
 
 function hashCode(code: string): string {
-  return crypto.createHash("sha256").update(`400ques:monetization:${code}`).digest("hex");
+  return crypto.createHash("sha256").update(`400faqs:monetization:${code}`).digest("hex");
 }
 
 function codesEqual(a: string, b: string): boolean {

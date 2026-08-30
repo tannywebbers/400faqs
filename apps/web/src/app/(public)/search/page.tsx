@@ -41,7 +41,7 @@ export default function SearchPage() {
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search 400QUES..."
+          placeholder="Search 400faqs..."
           className="h-12 rounded-2xl pl-12 text-base"
           autoFocus
         />

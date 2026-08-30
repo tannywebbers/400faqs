@@ -160,7 +160,7 @@ export default function AdminAdminsPage() {
             </div>
             <div className="space-y-2">
               <Label>Email</Label>
-              <Input type="email" {...form.register("email")} placeholder="admin@400ques.com" />
+              <Input type="email" {...form.register("email")} placeholder="admin@400faqs.com" />
               {form.formState.errors.email && <p className="text-sm text-red-600">{form.formState.errors.email.message}</p>}
             </div>
             <div className="space-y-2">

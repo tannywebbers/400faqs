@@ -43,7 +43,7 @@ export default function HelpPage() {
 
   return (
     <Container className="py-10">
-      <PageHeader title="Help Center" description="Guides, troubleshooting and everything you need to know about 400QUES." />
+      <PageHeader title="Help Center" description="Guides, troubleshooting and everything you need to know about 400faqs." />
 
       <div className="mx-auto max-w-2xl">
         <div className="relative">

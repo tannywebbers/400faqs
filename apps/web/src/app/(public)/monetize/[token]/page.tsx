@@ -81,7 +81,7 @@ export default function MonetizePage() {
 
   const dt = query.data;
   const settings = {
-    siteName: process.env.NEXT_PUBLIC_SITE_NAME ?? "400QUES",
+    siteName: process.env.NEXT_PUBLIC_SITE_NAME ?? "400faqs",
   };
 
   return (

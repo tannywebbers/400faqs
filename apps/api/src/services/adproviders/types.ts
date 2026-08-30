@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 // ============================================================
 // Provider-agnostic ad adapter types.
 //
-// 400QUES works with any ad network/source by describing them as
+// 400faqs works with any ad network/source by describing them as
 // one of a small set of generic provider "types". The application
 // (game, contribution, website) only ever talks to the Adapter
 // abstraction below; it never branches on a specific vendor.

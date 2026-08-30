@@ -42,7 +42,7 @@ export default function AppCategoriesPage() {
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Browse Categories</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Explore every question category on 400QUES.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Explore every question category on 400faqs.</p>
       </div>
 
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

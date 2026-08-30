@@ -88,23 +88,23 @@ export async function serverFetch<T>(path: string, revalidate = 60): Promise<T> 
 
 export const getToken = (): string | null => {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem("400ques_admin_token");
+  return window.localStorage.getItem("400faqs_admin_token");
 };
 
 export const setToken = (token: string): void => {
-  window.localStorage.setItem("400ques_admin_token", token);
+  window.localStorage.setItem("400faqs_admin_token", token);
 };
 
 export const clearToken = (): void => {
-  window.localStorage.removeItem("400ques_admin_token");
+  window.localStorage.removeItem("400faqs_admin_token");
 };
 
 export const getAdminUser = (): { id: string; name: string; email: string; role: string } | null => {
   if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem("400ques_admin_user");
+  const raw = window.localStorage.getItem("400faqs_admin_user");
   return raw ? (JSON.parse(raw) as { id: string; name: string; email: string; role: string }) : null;
 };
 
 export const setAdminUser = (user: { id: string; name: string; email: string; role: string }): void => {
-  window.localStorage.setItem("400ques_admin_user", JSON.stringify(user));
+  window.localStorage.setItem("400faqs_admin_user", JSON.stringify(user));
 };

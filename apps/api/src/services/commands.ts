@@ -1,5 +1,5 @@
 // ============================================================
-// Centralized 400QUES command registry & parser
+// Centralized 400faqs command registry & parser
 // ============================================================
 
 export type CommandName =

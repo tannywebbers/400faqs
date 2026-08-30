@@ -15,7 +15,7 @@ async function getSettings() {
   return {} as Record<string, string>;
 }
 
-export const metadata: Metadata = { title: "Privacy Policy", description: "How 400QUES handles your data." };
+export const metadata: Metadata = { title: "Privacy Policy", description: "How 400faqs handles your data." };
 
 export default async function PrivacyPage() {
   const settings = await getSettings();

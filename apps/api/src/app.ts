@@ -71,7 +71,7 @@ export function createApp() {
   app.use("/api/monetization", monetizationRouter);
 
   app.get("/", (_req, res) => {
-    res.json({ name: "400QUES API", version: config.deployment.version, status: "running" });
+    res.json({ name: "400faqs API", version: config.deployment.version, status: "running" });
   });
 
   app.use(notFoundHandler);

@@ -22,17 +22,17 @@ async function getDefaultSeo() {
 
 export async function generateMetadata(): Promise<Metadata> {
   const settings = await getDefaultSeo();
-  const title = settings["seo.defaultTitle"] ?? "400QUES - The Ultimate WhatsApp Questions Game";
+  const title = settings["seo.defaultTitle"] ?? "400faqs - The Ultimate WhatsApp Questions Game";
   const description = settings["seo.defaultDescription"] ?? "Challenge your friends. Ask hundreds of questions. Play Truth or Dare inside WhatsApp. No app install needed.";
   const ogImage = settings["seo.defaultOgImage"] ?? undefined;
 
   return {
-    title: { default: title, template: `%s | ${settings["site.name"] ?? "400QUES"}` },
+    title: { default: title, template: `%s | ${settings["site.name"] ?? "400faqs"}` },
     description,
     metadataBase: new URL(process.env.NEXT_PUBLIC_WEB_URL ?? "http://localhost:3000"),
     openGraph: {
       type: "website",
-      siteName: settings["site.name"] ?? "400QUES",
+      siteName: settings["site.name"] ?? "400faqs",
       title,
       description,
       ...(ogImage ? { images: [{ url: ogImage }] } : {}),

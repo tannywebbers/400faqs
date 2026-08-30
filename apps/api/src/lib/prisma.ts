@@ -1,1 +1,1 @@
-export { prisma } from "@400ques/db";
+export { prisma } from "@400faqs/db";

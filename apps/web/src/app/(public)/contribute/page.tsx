@@ -85,7 +85,7 @@ export default function ContributePage() {
     <Container className="py-10">
       <PageHeader
         title="Contribute a Question"
-        description="Add a question to the 400QUES library. Every submission is checked by AI for grammar, profanity, spam and duplicates."
+        description="Add a question to the 400faqs library. Every submission is checked by AI for grammar, profanity, spam and duplicates."
       />
 
       {!enabled ? (

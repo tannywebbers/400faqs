@@ -42,7 +42,7 @@ export const config = {
   whatsapp: {
     token: process.env.WHATSAPP_TOKEN ?? "",
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
-    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? "400ques-verify",
+    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? "400faqs-verify",
     graphVersion: process.env.WHATSAPP_GRAPH_VERSION ?? "v19.0",
     apiBase: process.env.WHATSAPP_API_BASE ?? "https://graph.facebook.com",
     // Optional app secret enables X-Hub-Signature-256 verification of webhooks.
@@ -67,7 +67,7 @@ export const config = {
   },
 
   admin: {
-    email: process.env.ADMIN_EMAIL ?? "admin@400ques.com",
+    email: process.env.ADMIN_EMAIL ?? "admin@400faqs.com",
     password: process.env.ADMIN_PASSWORD ?? "admin1234",
     name: process.env.ADMIN_NAME ?? "Super Admin",
   },

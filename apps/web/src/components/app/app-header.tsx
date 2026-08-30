@@ -29,7 +29,7 @@ export function AppHeader() {
             4Q
           </span>
           <span className="font-extrabold tracking-tight">
-            400QUES <span className="font-semibold text-muted-foreground">App</span>
+            400faqs <span className="font-semibold text-muted-foreground">App</span>
           </span>
         </Link>
 

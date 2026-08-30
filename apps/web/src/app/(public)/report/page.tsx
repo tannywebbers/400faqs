@@ -67,7 +67,7 @@ export default function ReportPage() {
 
   return (
     <Container className="py-10">
-      <PageHeader title="Report a Question" description="Help keep the 400QUES library clean. Reports are reviewed by our moderation team." />
+      <PageHeader title="Report a Question" description="Help keep the 400faqs library clean. Reports are reviewed by our moderation team." />
 
       <div className="grid gap-8 lg:grid-cols-3">
         <Card className="lg:col-span-2">

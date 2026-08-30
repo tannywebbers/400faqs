@@ -20,8 +20,8 @@ const NAV_LINKS = [
 export function Header() {
   const [open, setOpen] = useState(false);
   const { data: settings } = usePublicSettings();
-  const waLink = useWhatsAppLink("Hi! I want to play 400QUES");
-  const siteName = settings?.["site.name"] ?? "400QUES";
+  const waLink = useWhatsAppLink("Hi! I want to play 400faqs");
+  const siteName = settings?.["site.name"] ?? "400faqs";
 
   return (
     <header className="sticky top-0 z-50 px-3 pt-3 sm:px-4">

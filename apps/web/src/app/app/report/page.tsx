@@ -75,7 +75,7 @@ export default function AppReportPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Report a Question</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Help keep the 400QUES library clean. Our moderation team reviews every report.
+          Help keep the 400faqs library clean. Our moderation team reviews every report.
         </p>
       </div>
 

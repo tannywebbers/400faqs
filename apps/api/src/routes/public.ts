@@ -94,7 +94,7 @@ publicRouter.get("/categories", async (req, res) => {
         playCount: c.playCount,
         trending: c.trending,
         createdAt: c.createdAt,
-        createdByName: c.createdBy?.name ?? "400QUES Team",
+        createdByName: c.createdBy?.name ?? "400faqs Team",
       })),
       { page, limit, total, totalPages: Math.ceil(total / limit) }
     )

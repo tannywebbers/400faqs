@@ -178,7 +178,7 @@ function buildPrompt(question: string, candidates: Candidate[]): string {
     .map((c, i) => `${i + 1}. [${c.type}] ${c.text}`)
     .join("\n");
   return [
-    "You detect duplicate questions for a social trivia game called 400QUES.",
+    "You detect duplicate questions for a social trivia game called 400faqs.",
     "Given one NEW question and a numbered list of CANDIDATE questions, compare meaning and wording.",
     "",
     `NEW question: "${question}"`,

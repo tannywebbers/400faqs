@@ -26,7 +26,7 @@ const LEGAL_LINKS = [
 
 export function Footer() {
   const { data: settings } = usePublicSettings();
-  const siteName = settings?.["site.name"] ?? "400QUES";
+  const siteName = settings?.["site.name"] ?? "400faqs";
   const version = settings?.["site.version"] ?? "1.0.0";
   const social = {
     twitter: settings?.["social.twitter"],

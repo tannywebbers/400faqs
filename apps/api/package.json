@@ -1,5 +1,5 @@
 {
-  "name": "@400ques/api",
+  "name": "@400faqs/api",
   "version": "1.0.0",
   "private": true,
   "main": "dist/index.js",
@@ -12,7 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@400ques/db": "1.0.0",
+    "@400faqs/db": "1.0.0",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.20.1",
     "compression": "^1.7.4",

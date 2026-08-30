@@ -253,9 +253,9 @@ function validateBySecret(record: AdProviderRecord, input: CallbackInput, eventT
     return { valid: false, reason: "No callback secret configured for this provider." };
   }
 
-  // Token in query/body header "x-400ques-token" or query `token`.
+  // Token in query/body header "x-400faqs-token" or query `token`.
   const queryToken = String(input.query.token ?? input.query.callbackToken ?? "");
-  const headerToken = headerOf(input.headers, "x-400ques-token") ?? "";
+  const headerToken = headerOf(input.headers, "x-400faqs-token") ?? "";
   const bodyToken = commonToken(input.rawBody);
   if (headerToken && headerToken !== "" && safeEqual(headerToken, secret)) {
     return { valid: true, eventType, providerReference: headerToken, metadata: { method: "header" } };
@@ -268,7 +268,7 @@ function validateBySecret(record: AdProviderRecord, input: CallbackInput, eventT
   }
 
   // HMAC-SHA256 signature (shared secret signing the raw body).
-  const sig = headerOf(input.headers, "x-400ques-signature") ?? "";
+  const sig = headerOf(input.headers, "x-400faqs-signature") ?? "";
   if (sig && verifyHmac(secret, input.rawBody, sig)) {
     return { valid: true, eventType, providerReference: sig, metadata: { method: "hmac" } };
   }

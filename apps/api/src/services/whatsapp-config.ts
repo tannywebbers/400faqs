@@ -30,7 +30,7 @@ export type MaskedWhatsAppConfig = {
 const SETTINGS_PREFIX = "whatsapp.";
 
 const DEFAULTS: Record<string, string> = {
-  "whatsapp.webhookVerifyToken": "400ques-verify",
+  "whatsapp.webhookVerifyToken": "400faqs-verify",
   "whatsapp.graphVersion": "v19.0",
   "whatsapp.apiBase": "https://graph.facebook.com",
 };
@@ -148,7 +148,7 @@ export async function checkConnectionStatus(): Promise<{
 }
 
 export function generateVerifyToken(): string {
-  return `400ques-verify-${crypto.randomBytes(16).toString("hex")}`;
+  return `400faqs-verify-${crypto.randomBytes(16).toString("hex")}`;
 }
 
 export function getWebhookUrl(): string {

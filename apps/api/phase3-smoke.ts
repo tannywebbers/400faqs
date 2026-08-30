@@ -1,8 +1,8 @@
-process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/400ques";
+process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/400faqs";
 process.env.REDIS_URL = "redis://localhost:6379";
 
 import { Prisma } from "@prisma/client";
-import { prisma } from "@400ques/db";
+import { prisma } from "@400faqs/db";
 import { handleWhatsAppMessage, getOrCreateUser } from "./src/services/game";
 
 let pass = 0;
@@ -27,7 +27,7 @@ async function newGame(userId: string): Promise<{ code: string; sessionId: strin
 }
 
 async function join(code: string, joinerPhone: string): Promise<void> {
-  await handleWhatsAppMessage({ phone: joinerPhone, name: joinerPhone, text: `Join my 400QUES game 🎮\n\nSession: ${code}` });
+  await handleWhatsAppMessage({ phone: joinerPhone, name: joinerPhone, text: `Join my 400faqs game 🎮\n\nSession: ${code}` });
 }
 
 async function main(): Promise<void> {

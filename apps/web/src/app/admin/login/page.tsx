@@ -48,13 +48,13 @@ export default function AdminLoginPage() {
         <CardHeader className="text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-brand text-xl font-black text-white">4Q</div>
           <CardTitle className="text-2xl">Admin Login</CardTitle>
-          <CardDescription>Sign in to manage 400QUES</CardDescription>
+          <CardDescription>Sign in to manage 400faqs</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="admin@400ques.com" {...register("email")} />
+              <Input id="email" type="email" placeholder="admin@400faqs.com" {...register("email")} />
               {errors.email && <p className="text-sm text-red-600">{errors.email.message}</p>}
             </div>
             <div className="space-y-2">

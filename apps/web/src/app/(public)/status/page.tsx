@@ -52,7 +52,7 @@ export default function StatusPage() {
 
   return (
     <Container className="py-10">
-      <PageHeader title="System Status" description="Real-time status of the 400QUES platform.">
+      <PageHeader title="System Status" description="Real-time status of the 400faqs platform.">
         <Button variant="outline" size="sm" onClick={refresh} loading={refreshing || query.isFetching}>
           <RefreshCw className="h-4 w-4" /> Refresh
         </Button>

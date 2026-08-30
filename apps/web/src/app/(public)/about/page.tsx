@@ -19,7 +19,7 @@ async function fetchData() {
   }
 }
 
-export const metadata: Metadata = { title: "About", description: "Learn about 400QUES and the community behind it." };
+export const metadata: Metadata = { title: "About", description: "Learn about 400faqs and the community behind it." };
 
 export default async function AboutPage() {
   const { settings, stats } = await fetchData();
@@ -30,7 +30,7 @@ export default async function AboutPage() {
     <Container className="py-10">
       <div className="mx-auto max-w-3xl text-center">
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-brand text-2xl font-black text-white">4Q</div>
-        <h1 className="mt-6 text-4xl font-bold tracking-tight">{settings["site.name"] ?? "400QUES"}</h1>
+        <h1 className="mt-6 text-4xl font-bold tracking-tight">{settings["site.name"] ?? "400faqs"}</h1>
         <p className="mt-3 text-lg text-muted-foreground">{settings["site.tagline"] ?? "The Ultimate WhatsApp Questions Game"}</p>
       </div>
 
@@ -73,7 +73,7 @@ export default async function AboutPage() {
       <div className="mt-16 rounded-3xl border border-line bg-white p-10 text-center shadow-soft">
         <h2 className="text-2xl font-bold">Built for the community</h2>
         <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
-          400QUES is powered by its players. Every question, category and improvement comes from people like you.
+          400faqs is powered by its players. Every question, category and improvement comes from people like you.
         </p>
         <p className="mt-6 text-sm text-muted-foreground">
           Want to help? <a href="/contribute" className="font-semibold text-brand hover:underline">Contribute a question</a> or{" "}

@@ -132,7 +132,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="flex h-16 items-center gap-2 border-b border-line px-6">
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-brand text-sm font-black text-white">4Q</div>
         <div>
-          <p className="text-sm font-bold leading-tight">400QUES</p>
+          <p className="text-sm font-bold leading-tight">400faqs</p>
           <p className="text-xs text-muted-foreground">Admin Panel</p>
         </div>
       </div>
@@ -199,7 +199,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </button>
         <div className="ml-3 flex items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-brand text-xs font-black text-white">4Q</div>
-          <span className="text-sm font-bold">400QUES Admin</span>
+          <span className="text-sm font-bold">400faqs Admin</span>
         </div>
       </div>
 

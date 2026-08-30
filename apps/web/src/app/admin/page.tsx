@@ -122,7 +122,7 @@ export default function AdminDashboardPage() {
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Overview of your 400QUES instance</p>
+          <p className="text-sm text-muted-foreground">Overview of your 400faqs instance</p>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span className={unread.data && unread.data.count > 0 ? "font-semibold text-brand" : ""}>

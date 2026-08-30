@@ -397,7 +397,7 @@ async function startNewGame(ctx: Ctx): Promise<void> {
 
   // Active session constraint: prevent creating a second active session
   if (ctx.session) {
-    await sendButtons(phone, "You already have an active 400QUES session.", [
+    await sendButtons(phone, "You already have an active 400faqs session.", [
       { id: "manage", title: "Manage session" },
       { id: "end_confirm", title: "End session" },
     ]);
@@ -407,7 +407,7 @@ async function startNewGame(ctx: Ctx): Promise<void> {
   // Double-check: prevent creating if another session exists (race protection)
   const alreadyActive = await hasActiveSession(userId);
   if (alreadyActive) {
-    await sendButtons(phone, "You already have an active 400QUES session.", [
+    await sendButtons(phone, "You already have an active 400faqs session.", [
       { id: "manage", title: "Manage session" },
       { id: "end_confirm", title: "End session" },
     ]);
@@ -495,7 +495,7 @@ async function sendCategoryList(ctx: Ctx, pickMode: boolean): Promise<void> {
     return;
   }
   const header = pickMode ? "Pick a category" : "Available Categories 📚";
-  const footer = "Play 400QUES with a friend 🎮";
+  const footer = "Play 400faqs with a friend 🎮";
   const rows = listCategories.map((c) => ({ id: c.id, title: c.name, description: (c.description ?? "").slice(0, 72) }));
   await sendList(phone, header, "See categories", rows, { footer });
 }
