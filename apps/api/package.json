@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "npm run build --workspace @400faqs/db && tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "worker": "tsx src/workers/index.ts",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@400faqs/db": "1.0.0",
+    "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.20.1",
     "compression": "^1.7.4",

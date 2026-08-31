@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { getAllSettings, settingsToRecord, settingBool, settingNumber } from "./settings";
 import { logger } from "../lib/logger";
+import type { Prisma } from "@prisma/client";
 
 // ============================================================
 // Daily analytics snapshots.
@@ -110,12 +111,14 @@ export async function getSnapshotSeries(days = 90) {
   const end = dayStart(new Date());
   const start = new Date(end);
   start.setDate(start.getDate() - days);
-  const rows = await prisma.analyticsSnapshot.findMany({
+    const rows: Prisma.AnalyticsSnapshotGetPayload<{ select: { id: true; date: true; data: true } }>[] = await prisma.analyticsSnapshot.findMany({
     where: { date: { gte: start, lte: end } },
     orderBy: { date: "asc" },
     select: { id: true, date: true, data: true },
   });
   return rows.map((r) => ({
+
+
     id: r.id,
     date: r.date.toISOString().slice(0, 10),
     totals: (r.data as SnapshotData).totals,
