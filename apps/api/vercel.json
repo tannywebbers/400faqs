@@ -1,7 +1,7 @@
 {
   "version": 2,
   "framework": null,
-  "rootDirectory": "apps/api",
+  /*"rootDirectory": "apps/api",*/
   "buildCommand": "cd ../.. && npm run build --workspace @400faqs/api",
   "devCommand": "cd ../.. && npm run dev --workspace @400faqs/api",
   "installCommand": "cd ../.. && npm install",
