@@ -64,8 +64,8 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     // again. Public /app pages never return 401.
     if (res.status === 401 && typeof window !== "undefined" && getToken()) {
       clearToken();
-      if (!window.location.pathname.startsWith("/admin/login")) {
-        window.location.assign("/admin/login");
+      if (!window.location.pathname.startsWith("/back/stage/admin/login")) {
+        window.location.assign("/back/stage/admin/login");
       }
     }
     const message = payload?.error?.message ?? `Request failed with status ${res.status}`;

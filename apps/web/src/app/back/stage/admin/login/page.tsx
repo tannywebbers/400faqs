@@ -36,7 +36,7 @@ export default function AdminLoginPage() {
       setToken(data.token);
       setAdminUser(data.admin);
       toast.success(`Welcome, ${data.admin.name}`);
-      router.replace("/admin");
+      router.replace("/back/stage/admin");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Login failed");
     }

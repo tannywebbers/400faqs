@@ -99,22 +99,22 @@ export default function AdminDashboardPage() {
   const t = query.data?.totals;
 
   const statCards = [
-    { label: "Categories", value: t?.categories ?? 0, icon: FolderOpen, href: "/admin/categories", accent: "green" },
-    { label: "Questions", value: t?.questions ?? 0, icon: HelpCircle, href: "/admin/questions", accent: "orange" },
-    { label: "Active Sessions", value: t?.activeSessions ?? 0, icon: PlayCircle, href: "/admin/whatsapp", accent: "green" },
-    { label: "Sessions Played", value: t?.completedSessions ?? 0, icon: MessageSquare, href: "/admin/whatsapp", accent: "purple" },
-    { label: "Moves Played", value: t?.moves ?? 0, icon: PlayCircle, href: "/admin/whatsapp", accent: "brand" },
-    { label: "Pending Questions", value: t?.pendingQuestions ?? 0, icon: Clock, href: "/admin/questions", accent: "orange" },
-    { label: "Pending Contributions", value: t?.pendingContributions ?? 0, icon: Sparkles, href: "/admin/contributions", accent: "green" },
+    { label: "Categories", value: t?.categories ?? 0, icon: FolderOpen, href: "/back/stage/admin/categories", accent: "green" },
+    { label: "Questions", value: t?.questions ?? 0, icon: HelpCircle, href: "/back/stage/admin/questions", accent: "orange" },
+    { label: "Active Sessions", value: t?.activeSessions ?? 0, icon: PlayCircle, href: "/back/stage/admin/whatsapp", accent: "green" },
+    { label: "Sessions Played", value: t?.completedSessions ?? 0, icon: MessageSquare, href: "/back/stage/admin/whatsapp", accent: "purple" },
+    { label: "Moves Played", value: t?.moves ?? 0, icon: PlayCircle, href: "/back/stage/admin/whatsapp", accent: "brand" },
+    { label: "Pending Questions", value: t?.pendingQuestions ?? 0, icon: Clock, href: "/back/stage/admin/questions", accent: "orange" },
+    { label: "Pending Contributions", value: t?.pendingContributions ?? 0, icon: Sparkles, href: "/back/stage/admin/contributions", accent: "green" },
   ];
 
   const attentionLinks = [
-    { label: "Pending questions", value: t?.pendingQuestions ?? 0, icon: Clock, href: "/admin/questions", color: "bg-amber-100 text-amber-700" },
-    { label: "Pending contributions", value: t?.pendingContributions ?? 0, icon: Sparkles, href: "/admin/contributions", color: "bg-brand/10 text-brand-700" },
-    { label: "Open reports", value: t?.openReports ?? 0, icon: ShieldAlert, href: "/admin/reports", color: "bg-red-100 text-red-700" },
-    { label: "Pending category requests", value: t?.pendingCategoryRequests ?? 0, icon: FolderPlus, href: "/admin/category-requests", color: "bg-accent/10 text-accent-700" },
-    { label: "Contact messages", value: t?.contactMessages ?? 0, icon: Mail, href: "/admin/contact", color: "bg-purple-100 text-purple-700" },
-    { label: "Unread notifications", value: unread.data?.count ?? 0, icon: Bell, href: "/admin/notifications", color: "bg-blue-100 text-blue-700" },
+    { label: "Pending questions", value: t?.pendingQuestions ?? 0, icon: Clock, href: "/back/stage/admin/questions", color: "bg-amber-100 text-amber-700" },
+    { label: "Pending contributions", value: t?.pendingContributions ?? 0, icon: Sparkles, href: "/back/stage/admin/contributions", color: "bg-brand/10 text-brand-700" },
+    { label: "Open reports", value: t?.openReports ?? 0, icon: ShieldAlert, href: "/back/stage/admin/reports", color: "bg-red-100 text-red-700" },
+    { label: "Pending category requests", value: t?.pendingCategoryRequests ?? 0, icon: FolderPlus, href: "/back/stage/admin/category-requests", color: "bg-accent/10 text-accent-700" },
+    { label: "Contact messages", value: t?.contactMessages ?? 0, icon: Mail, href: "/back/stage/admin/contact", color: "bg-purple-100 text-purple-700" },
+    { label: "Unread notifications", value: unread.data?.count ?? 0, icon: Bell, href: "/back/stage/admin/notifications", color: "bg-blue-100 text-blue-700" },
   ];
 
   return (
@@ -128,7 +128,7 @@ export default function AdminDashboardPage() {
           <span className={unread.data && unread.data.count > 0 ? "font-semibold text-brand" : ""}>
             {unread.data && unread.data.count > 0 ? `${unread.data.count} unread` : "No unread notifications"}
           </span>
-          <Link href="/admin/analytics">
+          <Link href="/back/stage/admin/analytics">
             <Button variant="outline" size="sm">
               <BarChart3 className="mr-2 h-4 w-4" /> View Analytics
             </Button>

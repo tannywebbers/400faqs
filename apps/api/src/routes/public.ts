@@ -544,7 +544,7 @@ publicRouter.post("/contact", publicLimiter, validate(contactSchema), async (req
     type: "CONTRIBUTION",
     title: "New contact message",
     message: `${body.name} — ${body.subject}`,
-    link: "/admin/contact",
+    link: "/back/stage/admin/contact",
   });
   res.json(ok({ message: "Message received. We'll get back to you soon." }));
 });

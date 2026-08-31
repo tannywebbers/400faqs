@@ -35,52 +35,52 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
   {
     label: "Overview",
     items: [
-      { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
-      { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
-      { href: "/admin/revenue", label: "Revenue", icon: Wallet },
+      { href: "/back/stage/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
+      { href: "/back/stage/admin/analytics", label: "Analytics", icon: BarChart3 },
+      { href: "/back/stage/admin/revenue", label: "Revenue", icon: Wallet },
     ],
   },
   {
     label: "Content",
     items: [
-      { href: "/admin/categories", label: "Categories", icon: FolderOpen },
-      { href: "/admin/questions", label: "Questions", icon: HelpCircle },
-      { href: "/admin/faqs", label: "FAQs", icon: Star },
-      { href: "/admin/articles", label: "Help Articles", icon: BookOpen },
+      { href: "/back/stage/admin/categories", label: "Categories", icon: FolderOpen },
+      { href: "/back/stage/admin/questions", label: "Questions", icon: HelpCircle },
+      { href: "/back/stage/admin/faqs", label: "FAQs", icon: Star },
+      { href: "/back/stage/admin/articles", label: "Help Articles", icon: BookOpen },
     ],
   },
   {
     label: "Review",
     items: [
-      { href: "/admin/contributions", label: "Contributions", icon: Sparkles },
-      { href: "/admin/reports", label: "Reports", icon: ShieldAlert },
-      { href: "/admin/category-requests", label: "Category Requests", icon: FolderPlus },
-      { href: "/admin/contact", label: "Contact Messages", icon: Mail },
+      { href: "/back/stage/admin/contributions", label: "Contributions", icon: Sparkles },
+      { href: "/back/stage/admin/reports", label: "Reports", icon: ShieldAlert },
+      { href: "/back/stage/admin/category-requests", label: "Category Requests", icon: FolderPlus },
+      { href: "/back/stage/admin/contact", label: "Contact Messages", icon: Mail },
     ],
   },
   {
     label: "WhatsApp",
     items: [
-      { href: "/admin/whatsapp", label: "WhatsApp", icon: MessageCircle },
-      { href: "/admin/sessions", label: "Sessions", icon: PlayCircle },
+      { href: "/back/stage/admin/whatsapp", label: "WhatsApp", icon: MessageCircle },
+      { href: "/back/stage/admin/sessions", label: "Sessions", icon: PlayCircle },
     ],
   },
   {
     label: "Monetization",
     items: [
-      { href: "/admin/monetization", label: "Monetization", icon: CreditCard },
-      { href: "/admin/ads", label: "Ad Providers", icon: Activity },
+      { href: "/back/stage/admin/monetization", label: "Monetization", icon: CreditCard },
+      { href: "/back/stage/admin/ads", label: "Ad Providers", icon: Activity },
     ],
   },
   {
     label: "System",
     items: [
-      { href: "/admin/notifications", label: "Notifications", icon: Bell },
-      { href: "/admin/health", label: "System Status", icon: Activity },
-      { href: "/admin/jobs", label: "Jobs", icon: Hammer },
-      { href: "/admin/audit", label: "Activity Log", icon: History },
-      { href: "/admin/admins", label: "Admins", icon: ShieldCheck },
-      { href: "/admin/settings", label: "Settings", icon: Settings },
+      { href: "/back/stage/admin/notifications", label: "Notifications", icon: Bell },
+      { href: "/back/stage/admin/health", label: "System Status", icon: Activity },
+      { href: "/back/stage/admin/jobs", label: "Jobs", icon: Hammer },
+      { href: "/back/stage/admin/audit", label: "Activity Log", icon: History },
+      { href: "/back/stage/admin/admins", label: "Admins", icon: ShieldCheck },
+      { href: "/back/stage/admin/settings", label: "Settings", icon: Settings },
     ],
   },
 ];
@@ -94,7 +94,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     setMounted(true);
     if (!getToken()) {
-      router.replace("/admin/login");
+      router.replace("/back/stage/admin/login");
     }
   }, [router]);
 
@@ -102,7 +102,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setMobileOpen(false);
   }, [pathname]);
 
-  const isLoginPage = pathname === "/admin/login";
+  const isLoginPage = pathname === "/back/stage/admin/login";
 
   if (!mounted || !getToken()) {
     if (isLoginPage) {
@@ -119,7 +119,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const logout = () => {
     clearToken();
-    router.replace("/admin/login");
+    router.replace("/back/stage/admin/login");
   };
 
   const isActive = (href: string, exact?: boolean) => {
