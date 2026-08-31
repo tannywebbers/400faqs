@@ -25,6 +25,19 @@ type Stats = {
 
 type FaqRow = { id: string; question: string; answer: string };
 
+type StepItem = { step: string; title: string; desc: string };
+type FeatureItem = { icon: string; title: string; desc: string };
+
+function parseJson<T>(raw: string | undefined, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length ? (parsed as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 async function fetchJson<T>(path: string): Promise<T | null> {
   try {
     const res = await fetch(apiUrl(path), { next: { revalidate: 300 } });
@@ -35,6 +48,26 @@ async function fetchJson<T>(path: string): Promise<T | null> {
     return null;
   }
 }
+
+const DEFAULT_STEPS: StepItem[] = [
+  { step: "1", title: "Message us", desc: "Open WhatsApp and send START to our number." },
+  { step: "2", title: "Create a session", desc: "Get a unique invite code instantly." },
+  { step: "3", title: "Invite your friend", desc: "Share the code — they join instantly." },
+  { step: "4", title: "Pick a category", desc: "Truth, Dare, or hundreds of themes." },
+  { step: "5", title: "Play", desc: "Alternate turns. Answer. Have fun." },
+];
+
+const DEFAULT_FEATURES: FeatureItem[] = [
+  { icon: "♾️", title: "Unlimited Sessions", desc: "Create as many games as you want, any time." },
+  { icon: "🗂️", title: "Hundreds of Categories", desc: "New themes added by the community constantly." },
+  { icon: "🤝", title: "Community Questions", desc: "Anyone can contribute a question — AI checks quality." },
+  { icon: "💭", title: "Truth Tap", desc: "Dedicated truth questions for real conversations." },
+  { icon: "🔥", title: "Dare Tap", desc: "Bold dares to keep things spicy." },
+  { icon: "🎲", title: "Random Questions", desc: "Skip around, get fresh questions every turn." },
+  { icon: "📜", title: "Session History", desc: "Full game history, questions asked and answered." },
+  { icon: "🚩", title: "Question Reports", desc: "Flag bad questions and keep the library clean." },
+  { icon: "✨", title: "AI Duplicate Detection", desc: "Smart checks keep the library fresh and unique." },
+];
 
 export const revalidate = 300;
 
@@ -55,6 +88,23 @@ export default async function HomePage() {
     "Challenge your friends. Ask hundreds of questions. Play Truth or Dare. Discover new categories. Everything inside WhatsApp.";
   const waNumber = settings?.["whatsapp.number"] ?? "";
   const waLink = waNumber ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${encodeURIComponent("START")}` : null;
+
+  const howTitle = settings?.["landing.how.title"] ?? "How It Works";
+  const howSubtitle =
+    settings?.["landing.how.subtitle"] ?? "From zero to game in under a minute. No signup, no app install.";
+  const steps = parseJson<StepItem[]>(settings?.["landing.how.steps"], DEFAULT_STEPS);
+
+  const featuresTitle = settings?.["landing.features.title"] ?? "Everything You Need";
+  const featuresSubtitle = settings?.["landing.features.subtitle"] ?? "A complete question game platform, built around WhatsApp.";
+  const features = parseJson<FeatureItem[]>(settings?.["landing.features.items"], DEFAULT_FEATURES);
+
+  const categoryTitle = settings?.["landing.categories.title"] ?? "Trending Categories";
+  const categorySubtitle = settings?.["landing.categories.subtitle"] ?? "What the community is playing right now.";
+
+  const faqTitle = settings?.["landing.faq.title"] ?? "Frequently Asked Questions";
+
+  const ctaTitle = settings?.["landing.cta.title"] ?? "Ready to play?";
+  const ctaBody = settings?.["landing.cta.body"] ?? description;
 
   return (
     <>
@@ -156,19 +206,13 @@ export default async function HomePage() {
       {/* ================= HOW IT WORKS ================= */}
       <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
         <div className="text-center">
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">How It Works</h2>
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">{howTitle}</h2>
           <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
-            From zero to game in under a minute. No signup, no app install.
+            {howSubtitle}
           </p>
         </div>
         <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
-          {[
-            { step: "1", title: "Message us", desc: "Open WhatsApp and send START to our number." },
-            { step: "2", title: "Create a session", desc: "Get a unique invite code instantly." },
-            { step: "3", title: "Invite your friend", desc: "Share the code — they join instantly." },
-            { step: "4", title: "Pick a category", desc: "Truth, Dare, or hundreds of themes." },
-            { step: "5", title: "Play", desc: "Alternate turns. Answer. Have fun." },
-          ].map((s) => (
+          {steps.map((s) => (
             <div key={s.step} className="glass card-hover rounded-2xl p-6 text-center">
               <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-brand font-bold text-white">
                 {s.step}
@@ -184,23 +228,13 @@ export default async function HomePage() {
       <section className="border-y border-line bg-white">
         <div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
           <div className="text-center">
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Everything You Need</h2>
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">{featuresTitle}</h2>
             <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
-              A complete question game platform, built around WhatsApp.
+              {featuresSubtitle}
             </p>
           </div>
           <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              { icon: "♾️", title: "Unlimited Sessions", desc: "Create as many games as you want, any time." },
-              { icon: "🗂️", title: "Hundreds of Categories", desc: "New themes added by the community constantly." },
-              { icon: "🤝", title: "Community Questions", desc: "Anyone can contribute a question — AI checks quality." },
-              { icon: "💭", title: "Truth Tap", desc: "Dedicated truth questions for real conversations." },
-              { icon: "🔥", title: "Dare Tap", desc: "Bold dares to keep things spicy." },
-              { icon: "🎲", title: "Random Questions", desc: "Skip around, get fresh questions every turn." },
-              { icon: "📜", title: "Session History", desc: "Full game history, questions asked and answered." },
-              { icon: "🚩", title: "Question Reports", desc: "Flag bad questions and keep the library clean." },
-              { icon: "✨", title: "AI Duplicate Detection", desc: "Smart checks keep the library fresh and unique." },
-            ].map((f) => (
+            {features.map((f) => (
               <div key={f.title} className="glass card-hover rounded-2xl p-6">
                 <div className="text-3xl">{f.icon}</div>
                 <h3 className="mt-4 font-semibold">{f.title}</h3>
@@ -216,8 +250,8 @@ export default async function HomePage() {
         <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
           <div className="flex items-end justify-between">
             <div>
-              <h2 className="text-3xl font-bold tracking-tight">Trending Categories</h2>
-              <p className="mt-2 text-muted-foreground">What the community is playing right now.</p>
+              <h2 className="text-3xl font-bold tracking-tight">{categoryTitle}</h2>
+              <p className="mt-2 text-muted-foreground">{categorySubtitle}</p>
             </div>
             <a href="/categories" className="text-sm font-semibold text-brand hover:underline">
               View all →
@@ -253,7 +287,7 @@ export default async function HomePage() {
         <section className="border-t border-line bg-white">
           <div className="mx-auto max-w-3xl px-4 py-24 sm:px-6 lg:px-8">
             <div className="text-center">
-              <h2 className="text-3xl font-bold tracking-tight">Frequently Asked Questions</h2>
+              <h2 className="text-3xl font-bold tracking-tight">{faqTitle}</h2>
               <a href="/help" className="mt-3 inline-block text-sm font-semibold text-brand hover:underline">
                 Visit Help Center →
               </a>
@@ -268,8 +302,8 @@ export default async function HomePage() {
         <div className="relative overflow-hidden rounded-3xl bg-gradient-brand px-6 py-16 text-center text-white sm:px-16">
           <div className="absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/10 blur-2xl" />
           <div className="absolute -bottom-16 -left-16 h-64 w-64 rounded-full bg-white/10 blur-2xl" />
-          <h2 className="relative text-3xl font-bold tracking-tight sm:text-4xl">Ready to play?</h2>
-          <p className="relative mx-auto mt-3 max-w-xl text-white/80">{description}</p>
+          <h2 className="relative text-3xl font-bold tracking-tight sm:text-4xl">{ctaTitle}</h2>
+          <p className="relative mx-auto mt-3 max-w-xl text-white/80">{ctaBody}</p>
           <div className="relative mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             {waLink && (
               <a

@@ -5,6 +5,7 @@
 export type CommandName =
   | "start"
   | "manage"
+  | "status"
   | "help"
   | "cancel"
   | "end"
@@ -24,6 +25,7 @@ export type ParsedCommand = {
 const REGISTRY: Record<CommandName, string[]> = {
   start: ["start", "new", "play", "create"],
   manage: ["manage", "session"],
+  status: ["status", "state"],
   help: ["help", "menu", "?"],
   cancel: ["cancel"],
   end: ["end"],

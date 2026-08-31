@@ -76,7 +76,7 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
     label: "System",
     items: [
       { href: "/admin/notifications", label: "Notifications", icon: Bell },
-      { href: "/admin/health", label: "Health", icon: Activity },
+      { href: "/admin/health", label: "System Status", icon: Activity },
       { href: "/admin/jobs", label: "Jobs", icon: Hammer },
       { href: "/admin/audit", label: "Activity Log", icon: History },
       { href: "/admin/admins", label: "Admins", icon: ShieldCheck },

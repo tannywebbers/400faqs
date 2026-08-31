@@ -27,16 +27,34 @@ async function guardedCron(name: string, fn: () => Promise<void>): Promise<void>
 async function main() {
   requireEnv();
 
-  await connectRedis();
+  // Redis is required to run background workers/queues. Fail fast with an
+  // actionable message when it is required, or boot without workers when the
+  // developer explicitly opted out (REDIS_REQUIRED=false — dev only).
+  let redisUp = false;
+  try {
+    await connectRedis();
+    redisUp = true;
+  } catch (err) {
+    const message = (err as Error).message;
+    if (config.redis.required) {
+      logger.error("[redis] " + message);
+      throw err;
+    }
+    logger.warn("[redis] " + message.split("\n")[0]);
+    logger.warn("REDIS_REQUIRED=false → starting API WITHOUT background workers. Queues, distributed locks and Redis caching are disabled. (Development only — not for production.)");
+  }
 
   const app = createApp();
   const server = http.createServer(app);
 
   initSocket(server);
 
-  // Workers run only in the main process (set WORKER_PROCESS=0 to disable)
-  if (config.env === "production" || process.env.WORKER_PROCESS !== "0") {
+  // Workers require a live Redis connection; never start them on a dead one.
+  const workersEnabled = redisUp && (config.env === "production" || process.env.WORKER_PROCESS !== "0");
+  if (workersEnabled) {
     startWorkers();
+  } else if (config.env !== "production" && redisUp && process.env.WORKER_PROCESS === "0") {
+    logger.info("[api] WORKER_PROCESS=0 → running API server only (no in-process workers)");
   }
 
   // Cron: sweep stale sessions every 5 minutes

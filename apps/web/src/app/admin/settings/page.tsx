@@ -51,6 +51,35 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
+    label: "Landing Page",
+    description: "Editable copy for the public landing page sections",
+    fields: [
+      { key: "landing.how.title", label: "How It Works title", public: true },
+      { key: "landing.how.subtitle", label: "How It Works subtitle", type: "textarea", public: true },
+      {
+        key: "landing.how.steps",
+        label: "How It Works steps (JSON)",
+        type: "textarea",
+        public: true,
+        hint: 'JSON array: [{"step":"1","title":"...","desc":"..."}, ...]',
+      },
+      { key: "landing.features.title", label: "Features title", public: true },
+      { key: "landing.features.subtitle", label: "Features subtitle", type: "textarea", public: true },
+      {
+        key: "landing.features.items",
+        label: "Features items (JSON)",
+        type: "textarea",
+        public: true,
+        hint: 'JSON array: [{"icon":"♾️","title":"...","desc":"..."}, ...]',
+      },
+      { key: "landing.categories.title", label: "Trending categories title", public: true },
+      { key: "landing.categories.subtitle", label: "Trending categories subtitle", public: true },
+      { key: "landing.faq.title", label: "FAQ title", public: true },
+      { key: "landing.cta.title", label: "CTA title", public: true },
+      { key: "landing.cta.body", label: "CTA body text", type: "textarea", public: true },
+    ],
+  },
+  {
     label: "Contact & Social",
     description: "Where people can reach you",
     fields: [

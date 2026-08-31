@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { whatsappLink } from "@/lib/utils";
 
 export type PublicSettings = Record<string, string>;
 
@@ -15,8 +16,6 @@ export function usePublicSettings() {
 
 export function useWhatsAppLink(text?: string) {
   const { data: settings } = usePublicSettings();
-  const number = settings?.["whatsapp.number"] ?? "";
-  if (!number) return "#";
-  const clean = number.replace(/\D/g, "");
-  return `https://wa.me/${clean}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
+  const result = whatsappLink(settings?.["whatsapp.number"] ?? "", text);
+  return result;
 }

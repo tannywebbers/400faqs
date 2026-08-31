@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Database, Radio, Server, Webhook, MessageCircle } from "lucide-react";
+import { Activity, Database, Radio, Server, Webhook, MessageCircle, Loader2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { apiFetch, getToken } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,16 @@ type HealthCounts = {
 
 const SERVICE_ICONS = { server: Server, whatsapp: MessageCircle, database: Database, redis: Radio, webhook: Webhook };
 
+type OverallState = "CHECKING" | "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "ERROR";
+
+const OVERALL_META: Record<OverallState, { label: string; variant: "green" | "orange" | "red" | "gray"; Icon: typeof Loader2; detail: string }> = {
+  CHECKING: { label: "Checking…", variant: "gray", Icon: Loader2, detail: "Gathering component and queue status." },
+  HEALTHY: { label: "All systems operational", variant: "green", Icon: CheckCircle2, detail: "Every monitored component and background queue is healthy." },
+  DEGRADED: { label: "Degraded", variant: "orange", Icon: AlertTriangle, detail: "Some components or queues need attention, but the platform remains usable." },
+  UNHEALTHY: { label: "Unhealthy", variant: "red", Icon: XCircle, detail: "One or more critical components are down." },
+  ERROR: { label: "Status unavailable", variant: "red", Icon: XCircle, detail: "Could not retrieve health data. Check the API logs." },
+};
+
 export default function AdminHealthPage() {
   const token = getToken();
 
@@ -61,6 +72,17 @@ export default function AdminHealthPage() {
     refetchInterval: 60_000,
   });
 
+  // Frontend watchdog: if a health request hasn't settled within 15s, surface an
+  // explicit ERROR state instead of staying on "Checking…" indefinitely.
+  const [watchdog, setWatchdog] = useState(false);
+  useEffect(() => {
+    setWatchdog(false);
+    if (health.isPending || health.isFetching) {
+      const t = setTimeout(() => setWatchdog(true), 15_000);
+      return () => clearTimeout(t);
+    }
+  }, [health.isPending, health.isFetching, health.dataUpdatedAt]);
+
   const services: { key: keyof typeof SERVICE_ICONS; label: string }[] = [
     { key: "server", label: "API server" },
     { key: "database", label: "Database" },
@@ -69,15 +91,38 @@ export default function AdminHealthPage() {
     { key: "webhook", label: "Webhook" },
   ];
 
+  function computeState(): OverallState {
+    if (watchdog || health.isError) return "ERROR";
+    if (health.isPending || !health.data) return "CHECKING";
+    const down = services.filter(({ key }) => health.data![key].status !== "operational");
+    const queueIssues = Object.values(health.data!.queues ?? {}).some((q) => q.waiting < 0 || q.failed > 0);
+    if (down.some(({ key }) => key === "database" || key === "redis")) return "UNHEALTHY";
+    if (down.length > 0 || queueIssues) return "DEGRADED";
+    return "HEALTHY";
+  }
+
+  const overall = computeState();
+  const meta = OVERALL_META[overall];
   const uptime = health.data ? Math.floor(health.data.uptimeSeconds / 60) : 0;
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight">System Health</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">System Status</h1>
         <p className="text-sm text-muted-foreground">
           Live status{health.data ? ` · v${health.data.version} · ${health.data.platform} · up ${uptime}m` : ""}
         </p>
+      </div>
+
+      <div className="mb-6 flex items-center gap-3 rounded-2xl border border-line bg-white p-4">
+        <span className={cn("flex h-11 w-11 items-center justify-center rounded-xl", overall === "HEALTHY" ? "bg-emerald-100 text-emerald-600" : overall === "DEGRADED" ? "bg-amber-100 text-amber-600" : "bg-red-100 text-red-600")}>
+          {overall === "CHECKING" ? <Loader2 className="h-5 w-5 animate-spin" /> : <meta.Icon className="h-5 w-5" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">{meta.label}</p>
+          <p className="text-xs text-muted-foreground">{meta.detail}</p>
+        </div>
+        <Badge variant={meta.variant}>{overall}</Badge>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -92,10 +137,10 @@ export default function AdminHealthPage() {
                   <span className={cn("flex h-9 w-9 items-center justify-center rounded-xl", ok ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600")}>
                     <Icon className="h-4 w-4" />
                   </span>
-                  <Badge variant={ok ? "green" : "red"}>{ok ? "OK" : s?.status ?? "…"}</Badge>
+                  <Badge variant={ok ? "green" : "red"}>{ok ? "OK" : overall === "ERROR" ? "unknown" : s?.status ?? "…"}</Badge>
                 </div>
                 <p className="mt-3 text-sm font-semibold">{label}</p>
-                <p className="text-xs text-muted-foreground">{s?.message ?? "Checking…"}</p>
+                <p className="text-xs text-muted-foreground">{s?.message ?? (overall === "ERROR" ? "Unavailable" : "Checking…")}</p>
               </CardContent>
             </Card>
           );

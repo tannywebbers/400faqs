@@ -32,6 +32,11 @@ export const config = {
 
   redis: {
     url: process.env.REDIS_URL ?? "redis://localhost:6379",
+    // Redis is required by default (workers, queues, locks, caching). For
+    // development-only API-route work without background jobs, set
+    // REDIS_REQUIRED=false to boot without Redis — never in production.
+    required: bool(process.env.REDIS_REQUIRED, true),
+    startupTimeoutMs: int(process.env.REDIS_STARTUP_TIMEOUT_MS, 8000),
   },
 
   jwt: {

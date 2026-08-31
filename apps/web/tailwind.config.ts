@@ -49,12 +49,14 @@ const config: Config = {
         line: "#E5E7EB",
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        sans: ["system-ui", "-apple-system", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"],
       },
       borderRadius: {
         xl: "0.9rem",
         "2xl": "1.25rem",
         "3xl": "1.75rem",
+        // Product requirement: EVERY input field and button uses this radius.
+        control: "30px",
       },
       boxShadow: {
         glass: "0 8px 32px rgba(31, 41, 55, 0.08)",

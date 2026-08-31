@@ -106,15 +106,20 @@ async function main() {
   }
 
   // ---- Bootstrap admin ----
+  // Idempotent: the admin is only ever created once with the env-provided
+  // password/name. Re-running the seed must NOT reset an existing admin's
+  // password or name (an admin may have changed them since first bootstrap).
   const email = (process.env.ADMIN_EMAIL ?? "admin@400faqs.com").toLowerCase();
   const password = process.env.ADMIN_PASSWORD ?? "admin1234";
   const name = process.env.ADMIN_NAME ?? "Super Admin";
   const hash = await bcrypt.hash(password, 12);
   await prisma.admin.upsert({
     where: { email },
-    update: { password: hash, name },
+    update: {},
     create: { email, password: hash, name, role: Role.SUPER_ADMIN },
   });
+  const seededAdmin = await prisma.admin.findUnique({ where: { email }, select: { email: true } });
+  if (!seededAdmin) throw new Error("Failed to bootstrap admin.");
 
   // ---- Initial system status event ----
   await prisma.systemEvent.create({

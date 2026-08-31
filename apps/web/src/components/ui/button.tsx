@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-control text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -19,8 +19,8 @@ const buttonVariants = cva(
       },
       size: {
         default: "h-10 px-4 py-2",
-        sm: "h-8 rounded-lg px-3 text-xs",
-        lg: "h-12 rounded-xl px-6 text-base",
+        sm: "h-8 rounded-control px-3 text-xs",
+        lg: "h-12 rounded-control px-6 text-base",
         icon: "h-10 w-10",
       },
     },
@@ -34,6 +34,11 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(({ className, variant, size, asChild = false, loading, children, disabled, ...props }, ref) => {
+  // When `asChild` is set the control renders through Radix's `Slot`, which
+  // requires the (single) child element to be the slot target. Injecting the
+  // loading spinner here would add a sibling (or a `false` literal) and break
+  // `Slot`; a link-style control can't show a spinner anyway, so it's only
+  // rendered for real <button> elements.
   const Comp = asChild ? Slot : "button";
   return (
     <Comp
@@ -42,7 +47,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(({ className, va
       disabled={disabled || loading}
       {...props}
     >
-      {loading && (
+      {!asChild && loading && (
         <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
       )}
       {children}

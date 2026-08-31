@@ -15,6 +15,35 @@ export type SystemStatus = {
   uptimeSeconds: number;
 };
 
+// Bound a single check so one slow/black-holed dependency can never make the
+// whole status call (or a health page) hang forever.
+function withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (!done) {
+        done = true;
+        resolve(onTimeout());
+      }
+    }, ms);
+    promise
+      .then((v) => {
+        if (!done) {
+          done = true;
+          clearTimeout(timer);
+          resolve(v);
+        }
+      })
+      .catch(() => {
+        if (!done) {
+          done = true;
+          clearTimeout(timer);
+          resolve(onTimeout());
+        }
+      });
+  });
+}
+
 export async function getSystemStatus(): Promise<SystemStatus> {
   let dbOk = true;
   try {
@@ -26,11 +55,16 @@ export async function getSystemStatus(): Promise<SystemStatus> {
   const redisOk = await pingRedis();
 
   let waOk = false;
-  if (whatsappConfigured()) {
+  let waConfigured = whatsappConfigured();
+  if (waConfigured) {
     try {
       const url = `${config.whatsapp.apiBase}/${config.whatsapp.graphVersion}/${config.whatsapp.phoneNumberId}`;
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${config.whatsapp.token}` } });
-      waOk = res.ok;
+      const res = await withTimeout(
+        fetch(url, { headers: { Authorization: `Bearer ${config.whatsapp.token}` } }),
+        5000,
+        () => null as unknown as Response,
+      );
+      waOk = Boolean(res) && res.ok;
     } catch {
       waOk = false;
     }
@@ -45,7 +79,7 @@ export async function getSystemStatus(): Promise<SystemStatus> {
 
   return {
     server: status(true, "Server is up"),
-    whatsapp: waOk ? status(true, "Connected") : status(false, whatsappConfigured() ? "API check failed" : "Not configured"),
+    whatsapp: waOk ? status(true, "Connected") : status(false, waConfigured ? "API check failed or timed out" : "Not configured"),
     database: status(dbOk, "Cannot reach database"),
     redis: status(redisOk, "Cannot reach Redis"),
     webhook: status(true, "Webhook endpoint active"),

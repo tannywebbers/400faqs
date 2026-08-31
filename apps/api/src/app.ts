@@ -43,7 +43,7 @@ export function createApp() {
 
   // Maintenance mode gate
   app.use((req, res, next) => {
-    if (config.maintenanceMode && !req.path.startsWith("/api/webhooks") && !req.path.startsWith("/api/public/status")) {
+    if (config.maintenanceMode && !req.path.startsWith("/api/webhooks")) {
       return res.status(503).json({ success: false, error: { message: "Under maintenance. Please try again later." } });
     }
     next();

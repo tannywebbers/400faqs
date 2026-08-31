@@ -41,7 +41,9 @@ export function timeAgo(value: string | Date): string {
 }
 
 export function whatsappLink(number: string, text?: string): string {
+  if (!number) return "#";
   const clean = number.replace(/\D/g, "");
+  if (!clean) return "#";
   return `https://wa.me/${clean}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
 }
 

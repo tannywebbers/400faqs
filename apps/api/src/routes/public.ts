@@ -6,7 +6,6 @@ import { publicLimiter, contributionLimiter } from "../middleware/rateLimit";
 import { ok } from "../lib/response";
 import { getPublicSettings } from "../services/settings";
 import { getPublicStats } from "../services/analytics";
-import { getSystemStatus } from "../services/status";
 import { submitContribution } from "../services/moderation";
 import { generateTicket } from "../lib/ticket";
 import { slugify } from "../lib/slugify";
@@ -19,10 +18,6 @@ import { recordEvent } from "../services/monetization";
 import { recordProviderChannelRevenue } from "../services/revenue";
 
 export const publicRouter = Router();
-
-publicRouter.get("/status", async (_req, res) => {
-  res.json(ok(await getSystemStatus()));
-});
 
 publicRouter.get("/settings", async (_req, res) => {
   res.json(ok(await getPublicSettings()));
