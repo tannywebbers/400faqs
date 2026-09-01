@@ -4,9 +4,14 @@ import { Providers } from "@/components/providers";
 import { WhatsAppFloat } from "@/components/whatsapp-float";
 import { apiUrl } from "@/lib/api";
 
+export const dynamic = "force-dynamic";
+
 async function getDefaultSeo() {
   try {
-    const res = await fetch(apiUrl("/api/public/settings"), { next: { revalidate: 300 } });
+    const res = await fetch(apiUrl("/api/public/settings"), {
+      next: { revalidate: 300 },
+      signal: AbortSignal.timeout(10000),
+    });
     if (res.ok) {
       const payload = (await res.json()) as { data: Record<string, string> };
       return payload.data;
