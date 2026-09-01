@@ -72,7 +72,7 @@ async function main() {
   // slipped past the per-session worker sweep.
   cron.schedule("*/5 * * * *", () => {
     guardedCron("recovery", async () => {
-      const { recoverMonetization, recoverStuckNotifications, recoverStuckSessions } = await import("./services/recovery");
+      const { recoverMonetization, recoverStuckNotifications, recoverStuckSessions } = await import("./services/recovery.js");
       const [monetization, notifications, sessions] = await Promise.all([
         recoverMonetization(),
         recoverStuckNotifications(),
@@ -87,7 +87,7 @@ async function main() {
   // Cron: retention cleanup hourly + daily analytics snapshot at 00:15
   cron.schedule("0 * * * *", () => {
     guardedCron("retention-cleanup", async () => {
-      const { runRetentionCleanup } = await import("./services/recovery");
+      const { runRetentionCleanup } = await import("./services/recovery.js");
       const { processedEvents, jobLogs } = await runRetentionCleanup();
       if (processedEvents + jobLogs > 0) logger.info("[cron] retention cleanup", { processedEvents, jobLogs });
     });
