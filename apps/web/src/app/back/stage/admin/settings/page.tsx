@@ -38,7 +38,7 @@ const GROUPS: GroupDef[] = [
       { key: "site.name", label: "Site Name", public: true },
       { key: "site.tagline", label: "Tagline", public: true },
       { key: "site.description", label: "Description", type: "textarea", public: true },
-      { key: "site.logo", label: "Logo URL (empty = text logo)", public: true },
+      { key: "site.logo", label: "Logo URL (optional; leave empty to use the uploaded logo)", public: true, hint: "Prefer uploading a logo image from the Admin > System > Logo page, which stores it directly in the database." },
       { key: "site.version", label: "Version", public: true },
     ],
   },

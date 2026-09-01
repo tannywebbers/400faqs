@@ -1,5 +1,7 @@
 "use client";
 
+import { apiUrl } from "@/lib/api";
+
 type BrandLogoProps = {
   /** Resolved public settings map (Record<string,string>). */
   settings?: Record<string, string> | null;
@@ -17,7 +19,7 @@ const TEXT = { sm: "text-base", md: "text-lg", lg: "text-2xl" } as const;
  * used. Cloaks a broken image so the UI never shows a broken-image icon.
  */
 export function BrandMark({ settings, size = "sm", className }: BrandLogoProps) {
-  const logo = settings?.["site.logo"]?.trim();
+  const logo = settings?.["site.logo_blob"] === "1" ? apiUrl("/api/logo") : settings?.["site.logo"]?.trim();
 
   if (logo) {
     return (

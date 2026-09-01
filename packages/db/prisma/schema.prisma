@@ -502,6 +502,21 @@ model Upload {
   createdAt  DateTime @default(now())
 }
 
+// Small binary assets stored directly in Postgres as bytea blobs (e.g. the
+// site logo). Keeping the logo in the DB means it survives redeploys and
+// needs no disk/filesystem — important for serverless (Vercel) hosting.
+model SiteAsset {
+  id        String   @id @default(cuid())
+  // Stable lookup key, e.g. "logo". One row per key.
+  key       String   @unique
+  mime      String
+  size      Int      @default(0)
+  data      Bytes
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model ContactMessage {
   id        String   @id @default(cuid())
   name      String

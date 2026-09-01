@@ -23,6 +23,7 @@ import { analyticsRouter } from "./analytics";
 import { revenueRouter } from "./revenue";
 import { healthRouter } from "./health";
 import { jobsRouter } from "./jobs";
+import { logoAdminRouter } from "./logo";
 
 export const adminRouter = Router();
 
@@ -51,3 +52,4 @@ adminRouter.use("/monetization", monetizationAdminRouter);
 adminRouter.use("/ads", adsAdminRouter);
 adminRouter.use("/analytics", analyticsRouter);
 adminRouter.use("/revenue", revenueRouter);
+adminRouter.use("/logo", logoAdminRouter);

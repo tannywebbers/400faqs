@@ -11,6 +11,7 @@ import { adminRouter } from "./routes/admin";
 import { webhookRouter } from "./routes/webhook";
 import { monetizationRouter } from "./routes/monetization";
 import { adCallbackRouter } from "./routes/callbacks";
+import { logoRouter } from "./routes/logo";
 import { notFoundHandler, errorHandler } from "./middleware/error";
 import { requestIdMiddleware } from "./middleware/request-id";
 import { prisma } from "./lib/prisma";
@@ -65,6 +66,7 @@ export function createApp() {
   app.use("/uploads", express.static(path.resolve(config.uploads.dir)));
 
   app.use("/api/public", publicRouter);
+  app.use("/api/logo", logoRouter);
   app.use("/api/admin", adminRouter);
   app.use("/api/webhooks", webhookRouter);
   app.use("/api/webhooks", adCallbackRouter);

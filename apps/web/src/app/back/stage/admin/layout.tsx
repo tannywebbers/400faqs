@@ -28,6 +28,8 @@ import {
   Activity,
   Hammer,
   ChevronDown,
+  Image as ImageIcon,
+  LayoutTemplate,
 } from "lucide-react";
 import { getToken, clearToken, getAdminUser } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -48,6 +50,7 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
       { href: "/back/stage/admin/questions", label: "Questions", icon: HelpCircle },
       { href: "/back/stage/admin/faqs", label: "FAQs", icon: Star },
       { href: "/back/stage/admin/articles", label: "Help Articles", icon: BookOpen },
+      { href: "/back/stage/admin/landing-editor", label: "Landing Editor", icon: LayoutTemplate },
     ],
   },
   {
@@ -80,6 +83,7 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
       { href: "/back/stage/admin/health", label: "System Status", icon: Activity },
       { href: "/back/stage/admin/jobs", label: "Jobs", icon: Hammer },
       { href: "/back/stage/admin/audit", label: "Activity Log", icon: History },
+      { href: "/back/stage/admin/logo", label: "Logo", icon: ImageIcon },
       { href: "/back/stage/admin/admins", label: "Admins", icon: ShieldCheck },
       { href: "/back/stage/admin/settings", label: "Settings", icon: Settings },
     ],

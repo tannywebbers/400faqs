@@ -10,6 +10,8 @@
     { "source": "/api/webhooks/(.*)", "destination": "/api/app" },
     { "source": "/api/monetization/(.*)", "destination": "/api/app" },
     { "source": "/api/health", "destination": "/api/app" },
+    { "source": "/api/logo", "destination": "/api/app" },
+    { "source": "/api/logo/(.*)", "destination": "/api/app" },
     { "source": "/uploads/(.*)", "destination": "/uploads/$1" },
     { "source": "/", "destination": "/api/app" }
   ]

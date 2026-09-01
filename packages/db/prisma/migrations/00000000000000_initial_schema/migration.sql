@@ -1022,3 +1022,20 @@ ALTER TABLE "RevenueLedger" ADD CONSTRAINT "RevenueLedger_gateId_fkey" FOREIGN K
 
 -- AddForeignKey
 ALTER TABLE "RevenueLedger" ADD CONSTRAINT "RevenueLedger_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "Admin"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- CreateTable
+CREATE TABLE "SiteAsset" (
+    "id" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "mime" TEXT NOT NULL,
+    "size" INTEGER NOT NULL DEFAULT 0,
+    "data" BYTEA NOT NULL,
+    "updatedBy" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "SiteAsset_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SiteAsset_key_key" ON "SiteAsset"("key");
+
