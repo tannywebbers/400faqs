@@ -4,5 +4,13 @@
   "buildCommand": "cd ../.. && npm run build --workspace @400faqs/api",
   "devCommand": "cd ../.. && npm run dev --workspace @400faqs/api",
   "installCommand": "cd ../.. && npm install",
-  "outputDirectory": "dist"
+  "rewrites": [
+    { "source": "/api/public/(.*)", "destination": "/api/app" },
+    { "source": "/api/admin/(.*)", "destination": "/api/app" },
+    { "source": "/api/webhooks/(.*)", "destination": "/api/app" },
+    { "source": "/api/monetization/(.*)", "destination": "/api/app" },
+    { "source": "/api/health", "destination": "/api/app" },
+    { "source": "/uploads/(.*)", "destination": "/uploads/$1" },
+    { "source": "/", "destination": "/api/app" }
+  ]
 }
