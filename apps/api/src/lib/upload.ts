@@ -7,7 +7,16 @@ import { config } from "../config";
 import { prisma } from "./prisma";
 import { logger } from "./logger";
 
-fs.mkdirSync(config.uploads.dir, { recursive: true });
+// The uploads directory is created lazily (on first actual upload) rather than
+// at module load. On serverless platforms (Vercel) the local filesystem is
+// read-only, so creating it eagerly would crash the function on every request.
+function ensureUploadDir(): void {
+  try {
+    fs.mkdirSync(config.uploads.dir, { recursive: true });
+  } catch (err) {
+    logger.warn("[upload] could not create uploads dir", (err as Error).message);
+  }
+}
 
 const MIME_EXT: Record<string, string> = {
   "image/png": ".png",
@@ -17,7 +26,10 @@ const MIME_EXT: Record<string, string> = {
 };
 
 const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, config.uploads.dir),
+  destination: (_req, _file, cb) => {
+    ensureUploadDir();
+    cb(null, config.uploads.dir);
+  },
   filename: (_req, file, cb) => {
     // Extension is derived from the validated MIME type (never from the
     // client-supplied original filename) so stored files can only ever be
