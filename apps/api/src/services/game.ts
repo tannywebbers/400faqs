@@ -4,7 +4,7 @@ import { getRedis } from "../lib/redis";
 import { sendText, sendButtons, sendList } from "../lib/whatsapp";
 import { generateInviteCode } from "../lib/ticket";
 import { parseCommand, normalizeInput } from "./commands";
-import { messages, waClickLink } from "./messages";
+import { messages, waClickLink, formatGreeting } from "./messages";
 import { logger } from "../lib/logger";
 import { submitContribution } from "./moderation";
 import {
@@ -189,7 +189,8 @@ export async function handleWhatsAppMessage(payload: WaInbound): Promise<void> {
 async function processMessage(payload: WaInbound): Promise<void> {
   const { user, created } = await getOrCreateUser(payload.phone, payload.name);
   if (created) {
-    await sendText(payload.phone, messages.welcome(user.name));
+    const greetingRow = await prisma.setting.findUnique({ where: { key: "whatsapp.greeting" } });
+    await sendText(payload.phone, formatGreeting(greetingRow?.value ?? null, user.name));
   }
 
   const session = await getActiveSessionForUser(user.id);

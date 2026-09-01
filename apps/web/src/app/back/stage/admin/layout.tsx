@@ -27,6 +27,7 @@ import {
   X,
   Activity,
   Hammer,
+  ChevronDown,
 } from "lucide-react";
 import { getToken, clearToken, getAdminUser } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -90,6 +91,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(NAV_GROUPS.map((g) => [g.label, true]))
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -137,28 +141,41 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </div>
       <nav className="flex-1 overflow-y-auto p-4">
-        {NAV_GROUPS.map((group) => (
-          <div key={group.label} className="mb-4">
-            <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</p>
-            <div className="space-y-0.5">
-              {group.items.map((item) => {
-                const active = isActive(item.href, item.exact);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
-                      active ? "bg-brand/10 text-brand-700" : "text-muted-foreground hover:bg-surface"
-                    )}
-                  >
-                    <item.icon className="h-4 w-4" /> {item.label}
-                  </Link>
-                );
-              })}
+        {NAV_GROUPS.map((group) => {
+          const hasActive = group.items.some((item) => isActive(item.href, item.exact));
+          const open = openGroups[group.label] ?? true;
+          return (
+            <div key={group.label} className="mb-1">
+              <button
+                type="button"
+                onClick={() => setOpenGroups((prev) => ({ ...prev, [group.label]: !open }))}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-surface"
+              >
+                <span className={cn(hasActive && "text-brand-700")}>{group.label}</span>
+                <ChevronDown className={cn("h-4 w-4 transition-transform", open && "rotate-180")} />
+              </button>
+              {open && (
+                <div className="mb-2 space-y-0.5 pl-1">
+                  {group.items.map((item) => {
+                    const active = isActive(item.href, item.exact);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                          active ? "bg-brand/10 text-brand-700" : "text-muted-foreground hover:bg-surface"
+                        )}
+                      >
+                        <item.icon className="h-4 w-4" /> {item.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </nav>
       <div className="border-t border-line p-4">
         <div className="mb-2 flex items-center gap-2">

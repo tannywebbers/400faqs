@@ -362,3 +362,12 @@ export const messages = {
     return `${who} completed the quick step.\n\nContinuing the game! 🎮`;
   },
 };
+
+// Formats the admin-configurable WhatsApp greeting. The special token {name}
+// is replaced with the player's WhatsApp name. Falls back to the default
+// welcome when no custom greeting is configured.
+export function formatGreeting(template: string | null | undefined, name?: string | null): string {
+  const t = template?.trim();
+  if (!t) return messages.welcome(name);
+  return t.replace(/\{name\}/g, name?.trim() || "there");
+}

@@ -19,6 +19,8 @@ import {
   CheckCircle2,
   Clock,
   AlertTriangle,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { apiFetch, getToken } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -151,6 +153,7 @@ export default function AdminWhatsAppPage() {
   const [msgPage, setMsgPage] = useState(1);
   const [sessionFilter, setSessionFilter] = useState("");
   const [sessionPage, setSessionPage] = useState(1);
+  const [showSecrets, setShowSecrets] = useState(false);
 
   // ── Queries ──────────────────────────────────────────────
 
@@ -411,14 +414,18 @@ export default function AdminWhatsAppPage() {
                 {s?.source === "env" && <span className="text-amber-600">Currently using environment variables.</span>}
                 {s?.source === "database" && <span className="text-green-600">Using database-stored credentials.</span>}
               </CardDescription>
+              <Button type="button" variant="outline" size="sm" className="mt-2 w-fit" onClick={() => setShowSecrets((v) => !v)}>
+                {showSecrets ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {showSecrets ? "Hide secrets" : "Reveal secrets"}
+              </Button>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
+                  <div className="space-y-2">
                   <Label>Access Token</Label>
                   <div className="flex items-center">
                     <Input
-                      type="password"
+                      type={showSecrets ? "text" : "password"}
                       placeholder={s?.maskedToken || "Enter access token"}
                       value={configForm.accessToken}
                       onChange={(e) => setConfigForm({ ...configForm, accessToken: e.target.value })}
@@ -453,7 +460,7 @@ export default function AdminWhatsAppPage() {
                 <div className="space-y-2">
                   <Label>App Secret</Label>
                   <Input
-                    type="password"
+                    type={showSecrets ? "text" : "password"}
                     placeholder={s?.maskedSecret || "Enter Meta App Secret"}
                     value={configForm.appSecret}
                     onChange={(e) => setConfigForm({ ...configForm, appSecret: e.target.value })}
@@ -480,6 +487,7 @@ export default function AdminWhatsAppPage() {
                   <Label>Webhook Verify Token</Label>
                   <div className="flex items-center">
                     <Input
+                      type={showSecrets ? "text" : "password"}
                       placeholder={s?.webhookVerifyToken || "Enter verify token"}
                       value={configForm.webhookVerifyToken}
                       onChange={(e) => setConfigForm({ ...configForm, webhookVerifyToken: e.target.value })}

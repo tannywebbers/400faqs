@@ -3,7 +3,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
-import { Save, Sparkles } from "lucide-react";
+import { Save, Sparkles, Settings as SettingsIcon, ChevronLeft } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { apiFetch, getToken } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -100,6 +101,8 @@ const GROUPS: GroupDef[] = [
     fields: [
       { key: "whatsapp.displayName", label: "Bot display name", public: true },
       { key: "whatsapp.greeting", label: "Greeting message", type: "textarea", public: true, hint: "{name} is replaced with the player's name" },
+      { key: "whatsapp.widget.enabled", label: "Show floating WhatsApp button on the website", type: "boolean", public: true },
+      { key: "whatsapp.widget.bubble", label: "Floating button chat bubble text", public: true, hint: "Shown above the floating WhatsApp button" },
     ],
   },
   {
@@ -184,6 +187,7 @@ function isBooleanString(value: string | undefined): boolean {
 export default function AdminSettingsPage() {
   const token = getToken();
   const [draft, setDraft] = useState<Record<string, string>>({});
+  const [activeLabel, setActiveLabel] = useState<string | null>(null);
   const hydrated = useRef(false);
 
   const query = useQuery<SettingRow[]>({
@@ -222,31 +226,47 @@ export default function AdminSettingsPage() {
 
   return (
     <div>
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-          <p className="text-sm text-muted-foreground">Global configuration and content</p>
-        </div>
-        <Button onClick={() => save.mutate()} loading={save.isPending}>
-          <Save className="h-4 w-4" /> Save All
-        </Button>
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        {activeLabel ? (
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={() => setActiveLabel(null)} aria-label="Back to settings">
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">{activeLabel} Settings</h1>
+              <p className="text-sm text-muted-foreground">
+                {GROUPS.find((g) => g.label === activeLabel)?.description}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+            <p className="text-sm text-muted-foreground">Choose a settings category to manage</p>
+          </div>
+        )}
+        {activeLabel && (
+          <Button onClick={() => save.mutate()} loading={save.isPending}>
+            <Save className="h-4 w-4" /> Save
+          </Button>
+        )}
       </div>
 
       {query.isLoading ? (
         <p className="text-sm text-muted-foreground">Loading settings...</p>
-      ) : (
+      ) : activeLabel ? (
         <div className="space-y-6">
           <Alert>
             <Sparkles className="h-4 w-4" />
             <AlertTitle>Google AI duplicate detection</AlertTitle>
             <AlertDescription>
               The Google AI API key is configured server-side via the <code className="font-mono text-xs">GOOGLE_AI_API_KEY</code> environment variable and is never stored, shown or exposed to the browser. Use the AI &amp;
-              Moderation group below to toggle detection, pick a model, set candidate limits and similarity thresholds.
+              Moderation category to toggle detection, pick a model, set candidate limits and similarity thresholds.
             </AlertDescription>
           </Alert>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            {GROUPS.map((group) => (
+          {GROUPS.filter((g) => g.label === activeLabel).map(
+            (group) => (
               <Card key={group.label}>
                 <CardHeader>
                   <CardTitle>{group.label}</CardTitle>
@@ -288,8 +308,26 @@ export default function AdminSettingsPage() {
                   })}
                 </CardContent>
               </Card>
-            ))}
-          </div>
+            )
+          )}
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {GROUPS.map((group) => (
+            <button
+              key={group.label}
+              type="button"
+              onClick={() => setActiveLabel(group.label)}
+              className="group flex flex-col items-start gap-1 rounded-2xl border border-border bg-card p-5 text-left transition hover:border-brand/40 hover:shadow-sm"
+            >
+              <span className="flex w-full items-center justify-between">
+                <SettingsIcon className={cn("h-5 w-5 text-muted-foreground transition group-hover:text-brand-700")} />
+                <span className="text-xs text-muted-foreground">{group.fields.length} field{group.fields.length === 1 ? "" : "s"}</span>
+              </span>
+              <span className="mt-2 font-semibold">{group.label}</span>
+              <span className="text-sm text-muted-foreground">{group.description}</span>
+            </button>
+          ))}
         </div>
       )}
     </div>

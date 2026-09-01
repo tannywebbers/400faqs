@@ -3,8 +3,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { Plus, Pencil, Trash2, RefreshCw, Building2, LayoutGrid, TrendingUp } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { Plus, Pencil, Trash2, RefreshCw, Building2, LayoutGrid, TrendingUp, BookOpen } from "lucide-react";
+import { apiFetch, getToken } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -85,6 +85,90 @@ type PerformanceReport = {
   }[];
 };
 
+// ---- Hardcoded provider catalog (for reference/docs only) -------------
+
+const AD_PROVIDER_CATALOG: {
+  name: string;
+  type: string;
+  summary: string;
+  placements: string[];
+  setup: string[];
+  configKeys: string;
+}[] = [
+  {
+    name: "Google AdSense",
+    type: "SCRIPT",
+    summary: "Display/auto ads via a publisher tag. Best for content placements.",
+    placements: ["HOME_INLINE", "FAQ_BOTTOM", "RESULT_PAGE"],
+    setup: [
+      "Create an AdSense ad unit in your publisher account.",
+      "Copy the generated <amp-ad>/<ins> snippet.",
+      "Add a provider with type SCRIPT and paste the snippet into configuration.html.",
+    ],
+    configKeys: "{\n  \"html\": \"<ins class=... data-ad-slot=...></ins>\"\n}",
+  },
+  {
+    name: "Google Ad Manager (GAM)",
+    type: "SCRIPT",
+    summary: "Publisher-specific ad server with programmatic + direct deals.",
+    placements: ["HOME_INLINE", "FAQ_BOTTOM"],
+    setup: [
+      "Create an ad unit and a display creative in GAM.",
+      "Copy the GPT (googletag) tag.",
+      "Add a provider with type SCRIPT and paste the GPT tag into configuration.html.",
+    ],
+    configKeys: "{\n  \"html\": \"<script>googletag.../script> <div id=div-gpt-ad-...></div>\"\n}",
+  },
+  {
+    name: "Meta Audience Network",
+    type: "SCRIPT",
+    summary: "Native/adaptive banner + interstitial via the Facebook SDK ad tag.",
+    placements: ["HOME_INLINE", "RESULT_PAGE"],
+    setup: [
+      "Register your app in Meta for Developers and enable Audience Network.",
+      "Create an ad placement ID.",
+      "Add a provider with type SCRIPT and configuration.html set to your ad unit tag.",
+    ],
+    configKeys: "{\n  \"html\": \"<div class=fan-ad data-placement-id=...></div>\"\n}",
+  },
+  {
+    name: "Direct Sponsor",
+    type: "DIRECT_LINK",
+    summary: "A single sponsor advertiser link (redirect) — no external network.",
+    placements: ["GATE", "RESULT_PAGE"],
+    setup: [
+      "Agree on a monthly/fixed or CPA deal with the sponsor.",
+      "Add a provider with type DIRECT_LINK and set configuration.url to the destination.",
+      "Assign a paid placement (e.g. GATE) to this provider.",
+    ],
+    configKeys: "{\n  \"url\": \"https://sponsor.example.com?ref=400faqs\",\n  \"redirect\": true\n}",
+  },
+  {
+    name: "CPA / Affiliate Network",
+    type: "CPA",
+    summary: "Cost-per-action: cash or credits are paid when a user completes an action.",
+    placements: ["GATE", "CONTRIBUTION_PAGE"],
+    setup: [
+      "Join an affiliate/CPA network and get an action/conversion link.",
+      "Add a provider with type CPA and configure the action URL + cpaRate.",
+      "Events route through the monetization gate; conversions credit the ledger.",
+    ],
+    configKeys: "{\n  \"url\": \"https://network.example.com/offer/123\",\n  \"eventCallbackToken\": \"...\"\n}",
+  },
+  {
+    name: "Verification / In-App Offer",
+    type: "VERIFICATION",
+    summary: "A unit that unlocks a WhatsApp verification gate for the player.",
+    placements: ["GATE"],
+    setup: [
+      "Configure the offer that verifies the player (ad view, quiz, signup).",
+      "Add a provider with type VERIFICATION and fixedPayoutPerVerification.",
+      "Player completes the verification gate; the ledger is credited automatically.",
+    ],
+    configKeys: "{\n  \"gateId\": \"...\",\n  \"payoutCurrency\": \"USD\"\n}",
+  },
+];
+
 // ---- Form default builders -------------------------------------------
 
 const emptyProvider: Record<string, unknown> = {
@@ -108,23 +192,24 @@ function providerToForm(p: AdProvider): Record<string, unknown> {
 
 export default function AdsAdminPage() {
   const qc = useQueryClient();
+  const token = getToken();
   const [tab, setTab] = useState("providers");
 
-  const { data: meta } = useQuery({ queryKey: ["ads-types"], queryFn: () => apiFetch<TypesMeta>("/api/admin/ads/types") });
+  const { data: meta } = useQuery({ queryKey: ["ads-types"], queryFn: () => apiFetch<TypesMeta>("/api/admin/ads/types", { token }) });
 
   const { data: providers, isLoading: providersLoading, refetch: refreshProviders } = useQuery({
     queryKey: ["ads-providers"],
-    queryFn: () => apiFetch<AdProvider[]>("/api/admin/ads/providers?limit=1000"),
+    queryFn: () => apiFetch<AdProvider[]>("/api/admin/ads/providers?limit=1000", { token }),
   });
 
   const { data: placements, isLoading: placementsLoading, refetch: refreshPlacements } = useQuery({
     queryKey: ["ads-placements"],
-    queryFn: () => apiFetch<AdPlacement[]>("/api/admin/ads/placements?limit=1000"),
+    queryFn: () => apiFetch<AdPlacement[]>("/api/admin/ads/placements?limit=1000", { token }),
   });
 
   const { data: report, isLoading: reportLoading, refetch: refreshReport } = useQuery({
     queryKey: ["ads-performance"],
-    queryFn: () => apiFetch<PerformanceReport>("/api/admin/ads/performance"),
+    queryFn: () => apiFetch<PerformanceReport>("/api/admin/ads/performance", { token }),
   });
 
   const invalidate = async () => {
@@ -138,9 +223,9 @@ export default function AdsAdminPage() {
   const saveProvider = useMutation({
     mutationFn: async (vals: Record<string, unknown>) => {
       if (providerModal.editing) {
-        return apiFetch(`/api/admin/ads/providers/${providerModal.editing.id}`, { method: "PUT", body: vals });
+        return apiFetch(`/api/admin/ads/providers/${providerModal.editing.id}`, { method: "PUT", body: vals, token });
       }
-      return apiFetch("/api/admin/ads/providers", { method: "POST", body: vals });
+      return apiFetch("/api/admin/ads/providers", { method: "POST", body: vals, token });
     },
     onSuccess: async () => {
       toast.success(providerModal.editing ? "Provider updated" : "Provider created");
@@ -151,7 +236,7 @@ export default function AdsAdminPage() {
   });
 
   const toggleProvider = useMutation({
-    mutationFn: (p: AdProvider) => apiFetch(`/api/admin/ads/providers/${p.id}/status`, { method: "PATCH", body: { enabled: !p.enabled } }),
+    mutationFn: (p: AdProvider) => apiFetch(`/api/admin/ads/providers/${p.id}/status`, { method: "PATCH", body: { enabled: !p.enabled }, token }),
     onSuccess: async () => {
       toast.success("Provider status updated");
       await invalidate();
@@ -160,7 +245,7 @@ export default function AdsAdminPage() {
   });
 
   const deleteProvider = useMutation({
-    mutationFn: (p: AdProvider) => apiFetch(`/api/admin/ads/providers/${p.id}`, { method: "DELETE" }),
+    mutationFn: (p: AdProvider) => apiFetch(`/api/admin/ads/providers/${p.id}`, { method: "DELETE", token }),
     onSuccess: async () => {
       toast.success("Provider deleted (or archived if it has history)");
       await invalidate();
@@ -175,9 +260,9 @@ export default function AdsAdminPage() {
   const savePlacement = useMutation({
     mutationFn: async (vals: Record<string, unknown>) => {
       if (placementModal.editing) {
-        return apiFetch(`/api/admin/ads/placements/${placementModal.editing.id}`, { method: "PUT", body: vals });
+        return apiFetch(`/api/admin/ads/placements/${placementModal.editing.id}`, { method: "PUT", body: vals, token });
       }
-      return apiFetch("/api/admin/ads/placements", { method: "POST", body: vals });
+      return apiFetch("/api/admin/ads/placements", { method: "POST", body: vals, token });
     },
     onSuccess: async () => {
       toast.success(placementModal.editing ? "Placement updated" : "Placement created");
@@ -188,7 +273,7 @@ export default function AdsAdminPage() {
   });
 
   const togglePlacement = useMutation({
-    mutationFn: (p: AdPlacement) => apiFetch(`/api/admin/ads/placements/${p.id}`, { method: "PUT", body: { enabled: !p.enabled } }),
+    mutationFn: (p: AdPlacement) => apiFetch(`/api/admin/ads/placements/${p.id}`, { method: "PUT", body: { enabled: !p.enabled }, token }),
     onSuccess: async () => {
       toast.success("Placement status updated");
       await invalidate();
@@ -197,7 +282,7 @@ export default function AdsAdminPage() {
   });
 
   const deletePlacement = useMutation({
-    mutationFn: (p: AdPlacement) => apiFetch(`/api/admin/ads/placements/${p.id}`, { method: "DELETE" }),
+    mutationFn: (p: AdPlacement) => apiFetch(`/api/admin/ads/placements/${p.id}`, { method: "DELETE", token }),
     onSuccess: async () => {
       toast.success("Placement deleted (or disabled if it has history)");
       await invalidate();
@@ -227,6 +312,9 @@ export default function AdsAdminPage() {
           </TabsTrigger>
           <TabsTrigger value="performance" className="gap-2">
             <TrendingUp className="h-4 w-4" /> Performance
+          </TabsTrigger>
+          <TabsTrigger value="catalog" className="gap-2">
+            <BookOpen className="h-4 w-4" /> Catalog & Docs
           </TabsTrigger>
         </TabsList>
 
@@ -445,6 +533,49 @@ export default function AdsAdminPage() {
           ) : (
             <EmptyState title="No performance data" description="Serve some ads to see provider/placement performance." />
           )}
+        </TabsContent>
+
+        {/* Catalog & Docs */}
+        <TabsContent value="catalog" className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            {AD_PROVIDER_CATALOG.map((entry) => (
+              <Card key={entry.name}>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-muted-foreground" /> {entry.name}
+                      </CardTitle>
+                      <CardDescription>{entry.summary}</CardDescription>
+                    </div>
+                    <Badge variant="gray">{entry.type}</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <div>
+                    <p className="mb-1 font-medium text-muted-foreground">Recommended placements</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {entry.placements.map((pl) => (
+                        <Badge key={pl} variant="outline">{pl}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="mb-1 font-medium text-muted-foreground">Setup</p>
+                    <ol className="list-decimal space-y-1 pl-4 text-muted-foreground">
+                      {entry.setup.map((step, i) => (
+                        <li key={i}>{step}</li>
+                      ))}
+                    </ol>
+                  </div>
+                  <div>
+                    <p className="mb-1 font-medium text-muted-foreground">Configuration keys</p>
+                    <pre className="overflow-x-auto rounded-lg bg-muted p-2 font-mono text-xs">{entry.configKeys}</pre>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </TabsContent>
       </Tabs>
 
