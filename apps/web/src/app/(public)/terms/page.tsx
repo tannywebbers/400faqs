@@ -1,36 +1,24 @@
 import type { Metadata } from "next";
-import { apiUrl } from "@/lib/api";
-import { Container } from "@/components/layout/container";
-
-async function getSettings() {
-  try {
-    const res = await fetch(apiUrl("/api/public/settings"), { next: { revalidate: 300 } });
-    if (res.ok) {
-      const payload = (await res.json()) as { data: Record<string, string> };
-      return payload.data;
-    }
-  } catch {
-    /* fallback */
-  }
-  return {} as Record<string, string>;
-}
+import { getLegalContent, LegalDocument } from "@/components/layout/legal-page";
 
 export const metadata: Metadata = { title: "Terms of Service", description: "The terms governing your use of 400faqs." };
 
-export default async function TermsPage() {
-  const settings = await getSettings();
-  const content = settings["terms.content"] ?? "Terms of Service";
-  const lastUpdated = settings["terms.lastUpdated"];
+const FALLBACK_BLOCKS = [
+  {
+    heading: "Acceptance of Terms",
+    body: "By using 400faqs you agree to these terms. The game is provided as-is for personal, non-commercial entertainment.",
+  },
+  {
+    heading: "Community Content",
+    body: "You retain ownership of questions you contribute, and grant 400faqs a license to display, review, and moderate them. Keep contributions respectful and age-appropriate.",
+  },
+  {
+    heading: "Acceptable Use",
+    body: "Do not abuse, spam, harass, or attempt to harm the service or other players. We may remove content or restrict access that violates these rules.",
+  },
+];
 
-  return (
-    <Container className="py-10">
-      <div className="mx-auto max-w-3xl">
-        <h1 className="text-3xl font-bold tracking-tight">Terms of Service</h1>
-        {lastUpdated && <p className="mt-2 text-sm text-muted-foreground">Last updated: {lastUpdated}</p>}
-        <div className="prose prose-slate mt-8 whitespace-pre-line rounded-3xl border border-line bg-white p-8 text-[15px] leading-relaxed text-ink shadow-soft">
-          {content}
-        </div>
-      </div>
-    </Container>
-  );
+export default async function TermsPage() {
+  const { title, blocks } = await getLegalContent("terms_of_service", "Terms of Service", FALLBACK_BLOCKS);
+  return <LegalDocument title={title} blocks={blocks} />;
 }

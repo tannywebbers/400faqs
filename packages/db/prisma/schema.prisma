@@ -418,6 +418,30 @@ model HelpArticle {
   updatedAt DateTime @updatedAt
 }
 
+// Section-based landing/content CMS. One row per editable section of the
+// public pages (hero, stats, how_it_works, features, cta, faqs, and the legal
+// pages privacy_policy / terms_of_service / cookies_policy). `content` is
+// purposefully a plain TEXT column: it holds a short paragraph for hero/cta
+// or a JSON-stringified array for stats/how_it_works/features/faqs/legal.
+model LandingContent {
+  id         String   @id @default(cuid())
+  sectionKey String   @unique @map("section_key")
+  title      String?
+  subtitle   String?
+  content    String?  @db.Text
+  imageUrl   String?  @map("image_url")
+  buttonText String?  @map("button_text")
+  buttonUrl  String?  @map("button_url")
+  isVisible  Boolean  @default(true) @map("is_visible")
+  sortOrder  Int      @default(0) @map("sort_order")
+  metadata   Json?    @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("landing_content")
+  @@index([sortOrder])
+}
+
 model Setting {
   key         String   @id
   value       String

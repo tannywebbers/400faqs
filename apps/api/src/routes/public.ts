@@ -5,6 +5,7 @@ import { validate, parsePagination } from "../middleware/validate";
 import { publicLimiter, contributionLimiter } from "../middleware/rateLimit";
 import { ok } from "../lib/response";
 import { getPublicSettings } from "../services/settings";
+import { getPublicLanding } from "../services/landing";
 import { getPublicStats } from "../services/analytics";
 import { submitContribution } from "../services/moderation";
 import { generateTicket } from "../lib/ticket";
@@ -21,6 +22,10 @@ export const publicRouter = Router();
 
 publicRouter.get("/settings", async (_req, res) => {
   res.json(ok(await getPublicSettings()));
+});
+
+publicRouter.get("/landing", async (_req, res) => {
+  res.json(ok(await getPublicLanding()));
 });
 
 publicRouter.get("/stats", async (_req, res) => {

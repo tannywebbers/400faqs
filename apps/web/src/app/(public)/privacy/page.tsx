@@ -1,36 +1,24 @@
 import type { Metadata } from "next";
-import { apiUrl } from "@/lib/api";
-import { Container } from "@/components/layout/container";
-
-async function getSettings() {
-  try {
-    const res = await fetch(apiUrl("/api/public/settings"), { next: { revalidate: 300 } });
-    if (res.ok) {
-      const payload = (await res.json()) as { data: Record<string, string> };
-      return payload.data;
-    }
-  } catch {
-    /* fallback */
-  }
-  return {} as Record<string, string>;
-}
+import { getLegalContent, LegalDocument } from "@/components/layout/legal-page";
 
 export const metadata: Metadata = { title: "Privacy Policy", description: "How 400faqs handles your data." };
 
-export default async function PrivacyPage() {
-  const settings = await getSettings();
-  const content = settings["privacy.content"] ?? "Privacy Policy";
-  const lastUpdated = settings["privacy.lastUpdated"];
+const FALLBACK_BLOCKS = [
+  {
+    heading: "Information We Collect",
+    body: "We collect only the information needed to provide the 400faqs game: your WhatsApp phone number, game sessions, and any questions you contribute.",
+  },
+  {
+    heading: "How We Use Your Data",
+    body: "Your data is used to run the game, verify community questions, send you game updates, and improve the service. We never sell personal data.",
+  },
+  {
+    heading: "Third-Party Services",
+    body: "We use trusted service providers (hosting, databases, and messaging infrastructure) to operate 400faqs. They process data only on our behalf.",
+  },
+];
 
-  return (
-    <Container className="py-10">
-      <div className="mx-auto max-w-3xl">
-        <h1 className="text-3xl font-bold tracking-tight">Privacy Policy</h1>
-        {lastUpdated && <p className="mt-2 text-sm text-muted-foreground">Last updated: {lastUpdated}</p>}
-        <div className="prose prose-slate mt-8 whitespace-pre-line rounded-3xl border border-line bg-white p-8 text-[15px] leading-relaxed text-ink shadow-soft">
-          {content}
-        </div>
-      </div>
-    </Container>
-  );
+export default async function PrivacyPage() {
+  const { title, blocks } = await getLegalContent("privacy_policy", "Privacy Policy", FALLBACK_BLOCKS);
+  return <LegalDocument title={title} blocks={blocks} />;
 }

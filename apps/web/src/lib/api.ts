@@ -84,6 +84,18 @@ export async function serverFetch<T>(path: string, revalidate = 60): Promise<T> 
   return payload.data;
 }
 
+// Server-side fetch for public pages with a hard timeout so a slow/hung API
+// can never stall SSR/static rendering of a marketing page.
+export async function publicFetch<T>(path: string, timeoutMs = 10000): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    next: { revalidate: 60 },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new ApiError(`Failed to load`, res.status);
+  const payload = (await res.json()) as ApiResult<T>;
+  return payload.data;
+}
+
 // ---- Client-side data helpers ----
 
 export const getToken = (): string | null => {

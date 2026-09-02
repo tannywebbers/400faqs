@@ -50,7 +50,7 @@ const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: t
       { href: "/back/stage/admin/questions", label: "Questions", icon: HelpCircle },
       { href: "/back/stage/admin/faqs", label: "FAQs", icon: Star },
       { href: "/back/stage/admin/articles", label: "Help Articles", icon: BookOpen },
-      { href: "/back/stage/admin/landing-editor", label: "Landing Editor", icon: LayoutTemplate },
+      { href: "/back/stage/admin/landing-editor", label: "Visual Page Editor", icon: LayoutTemplate },
     ],
   },
   {

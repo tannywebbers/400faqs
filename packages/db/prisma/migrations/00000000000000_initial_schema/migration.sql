@@ -1039,3 +1039,27 @@ CREATE TABLE "SiteAsset" (
 -- CreateIndex
 CREATE UNIQUE INDEX "SiteAsset_key_key" ON "SiteAsset"("key");
 
+
+-- CreateTable
+CREATE TABLE "LandingContent" (
+    "id" TEXT NOT NULL,
+    "section_key" TEXT NOT NULL,
+    "title" TEXT,
+    "subtitle" TEXT,
+    "content" TEXT,
+    "image_url" TEXT,
+    "button_text" TEXT,
+    "button_url" TEXT,
+    "is_visible" BOOLEAN NOT NULL DEFAULT true,
+    "sort_order" INTEGER NOT NULL DEFAULT 0,
+    "metadata" JSONB DEFAULT '{}'::jsonb,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "LandingContent_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "LandingContent_section_key_key" ON "LandingContent"("section_key");
+
+-- CreateIndex
+CREATE INDEX "LandingContent_sort_order_idx" ON "LandingContent"("sort_order");
