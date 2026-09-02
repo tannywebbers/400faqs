@@ -27,21 +27,22 @@ async function guardedCron(name: string, fn: () => Promise<void>): Promise<void>
 async function main() {
   requireEnv();
 
-  // Redis is required to run background workers/queues. Fail fast with an
-  // actionable message when it is required, or boot without workers when the
-  // developer explicitly opted out (REDIS_REQUIRED=false — dev only).
+  // Redis powers background workers/queues, distributed locks and caching.
+  // A failed/unreachable Redis must NEVER take the whole API down (that turns
+  // a hosted-Redis blip into "application error" on every request). When it
+  // cannot connect we boot in DEGRADED MODE: workers/queues stay off and cache
+  // calls fall back to an in-process store (see lib/redis.ts). Set a reachable
+  // REDIS_URL and redeploy to restore full mode.
   let redisUp = false;
   try {
     await connectRedis();
     redisUp = true;
   } catch (err) {
     const message = (err as Error).message;
-    if (config.redis.required) {
-      logger.error("[redis] " + message);
-      throw err;
-    }
-    logger.warn("[redis] " + message.split("\n")[0]);
-    logger.warn("REDIS_REQUIRED=false → starting API WITHOUT background workers. Queues, distributed locks and Redis caching are disabled. (Development only — not for production.)");
+    logger.error("[redis] " + message);
+    logger.error(
+      "[api] STARTING IN DEGRADED MODE: Redis unreachable - background workers, queues, distributed locks and Redis caching are DISABLED. Set a reachable REDIS_URL (e.g. Upstash) and restart to restore full mode."
+    );
   }
 
   const app = createApp();

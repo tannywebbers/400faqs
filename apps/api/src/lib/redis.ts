@@ -107,6 +107,41 @@ export async function closeRedis(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Degraded-mode in-memory cache.
+//
+// When Redis is unreachable the API does NOT crash at boot (see index.ts).
+// Cache calls transparently fall back to a small in-process store so public
+// pages and admin screens keep working; `cacheKeys` survive restarts only via
+// Redis, so this is strictly a resilience net, not a replacement.
+// ---------------------------------------------------------------------------
+
+type MemEntry = { value: unknown; expiresAt: number };
+
+const memCache = new Map<string, MemEntry>();
+
+function memGet<T>(key: string): T | null {
+  const entry = memCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    memCache.delete(key);
+    return null;
+  }
+  return entry.value as T;
+}
+
+function memSet(key: string, value: unknown, ttlSeconds: number): void {
+  const now = Date.now();
+  if (memCache.size >= 1000) {
+    // Cheap sweep: drop expired entries first; if still huge, clear entirely.
+    for (const [k, e] of memCache) {
+      if (now > e.expiresAt) memCache.delete(k);
+    }
+    if (memCache.size >= 1000) memCache.clear();
+  }
+  memCache.set(key, { value, expiresAt: now + ttlSeconds * 1000 });
+}
+
 export const cacheKeys = {
   publicSettings: "cache:public:settings",
   publicCategories: "cache:public:categories",
@@ -116,6 +151,7 @@ export const cacheKeys = {
 };
 
 export async function cacheGet<T>(key: string): Promise<T | null> {
+  if (!connected) return memGet<T>(key);
   try {
     const raw = await getRedis().get(key);
     return raw ? (JSON.parse(raw) as T) : null;
@@ -125,6 +161,10 @@ export async function cacheGet<T>(key: string): Promise<T | null> {
 }
 
 export async function cacheSet(key: string, value: unknown, ttlSeconds = 300): Promise<void> {
+  if (!connected) {
+    memSet(key, value, ttlSeconds);
+    return;
+  }
   try {
     await getRedis().set(key, JSON.stringify(value), "EX", ttlSeconds);
   } catch {
@@ -133,6 +173,10 @@ export async function cacheSet(key: string, value: unknown, ttlSeconds = 300): P
 }
 
 export async function cacheDel(key: string): Promise<void> {
+  if (!connected) {
+    memCache.delete(key);
+    return;
+  }
   try {
     await getRedis().del(key);
   } catch {
