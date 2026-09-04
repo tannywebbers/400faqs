@@ -1,22 +1,16 @@
 import type { Metadata } from "next";
-import { apiUrl } from "@/lib/api";
+import { getPublicSettings, getPublicStats } from "@/lib/queries/public-server";
 import { Container } from "@/components/layout/container";
 import { Heart, Eye, Users, Award, Star } from "lucide-react";
 
 type Stats = { questions: number; categories: number; sessions: number; players: number; contributions: number };
 
 async function fetchData() {
-  try {
-    const [settingsRes, statsRes] = await Promise.all([
-      fetch(apiUrl("/api/public/settings"), { next: { revalidate: 300 } }),
-      fetch(apiUrl("/api/public/stats"), { next: { revalidate: 300 } }),
-    ]);
-    const settings = settingsRes.ok ? ((await settingsRes.json()) as { data: Record<string, string> }).data : {};
-    const stats = statsRes.ok ? ((await statsRes.json()) as { data: Stats }).data : null;
-    return { settings, stats };
-  } catch {
-    return { settings: {}, stats: null };
-  }
+  const [settings, stats] = await Promise.all([
+    getPublicSettings().catch(() => ({} as Record<string, string>)),
+    getPublicStats().catch(() => null),
+  ]);
+  return { settings, stats };
 }
 
 export const metadata: Metadata = { title: "About", description: "Learn about 400faqs and the community behind it." };

@@ -1,46 +1,22 @@
-import { publicFetch } from "@/lib/api";
+import {
+  getPublicSettings,
+  getPublicLanding,
+  getPublicStats,
+  getPublicFaqs,
+  getTrendingCategories,
+  type PublicSettings,
+  type LandingSection,
+  type PublicStats,
+  type FaqRow,
+  type CategorySummary,
+} from "@/lib/queries/public-server";
 
-type CategoryRow = {
-  id: string;
-  name: string;
-  slug: string;
-  description: string;
-  icon: string;
-  color: string;
-  questionCount: number;
-  playCount: number;
-  trending: boolean;
-  createdByName: string;
-};
-
-type Stats = {
-  categories: number;
-  questions: number;
-  sessions: number;
-  moves: number;
-  contributions: number;
-  players: number;
-  approvedQuestions: number;
-};
-
-type FaqRow = { id: string; question: string; answer: string };
+type CategoryRow = CategorySummary;
+type Stats = PublicStats;
 
 type StepItem = { step?: string; title: string; desc?: string; description?: string };
 type FeatureItem = { icon?: string; title: string; desc?: string; description?: string };
 type StatItem = { key?: string; value?: string; label: string };
-
-type LandingSection = {
-  id: string;
-  sectionKey: string;
-  title: string | null;
-  subtitle: string | null;
-  content: string | null;
-  imageUrl: string | null;
-  buttonText: string | null;
-  buttonUrl: string | null;
-  isVisible: boolean;
-  sortOrder: number;
-};
 
 function parseJson<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;
@@ -105,11 +81,11 @@ export const revalidate = 60;
 
 export default async function HomePage() {
   const [settings, categories, stats, faqs, landing] = await Promise.all([
-    publicFetch<Record<string, string>>("/api/public/settings").catch(() => null),
-    publicFetch<CategoryRow[]>("/api/public/categories?limit=6&sort=trending").catch(() => null),
-    publicFetch<Stats>("/api/public/stats").catch(() => null),
-    publicFetch<FaqRow[]>("/api/public/faqs").catch(() => null),
-    publicFetch<LandingSection[]>("/api/public/landing").catch(() => null),
+    getPublicSettings().catch(() => null),
+    getTrendingCategories(6).catch(() => null),
+    getPublicStats().catch(() => null),
+    getPublicFaqs().catch(() => null),
+    getPublicLanding().catch(() => null),
   ]);
 
   const waNumber = settings?.["whatsapp.number"] ?? "";

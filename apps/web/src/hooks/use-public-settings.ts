@@ -1,15 +1,15 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/lib/api";
+import { fetchPublicSettings, type PublicSettings } from "@/lib/queries/public-client";
 import { whatsappLink } from "@/lib/utils";
 
-export type PublicSettings = Record<string, string>;
+export type { PublicSettings };
 
 export function usePublicSettings() {
   return useQuery<PublicSettings>({
     queryKey: ["public-settings"],
-    queryFn: () => apiFetch<PublicSettings>("/api/public/settings"),
+    queryFn: () => fetchPublicSettings(),
     staleTime: 300_000,
   });
 }

@@ -4,6 +4,21 @@
   "startCommand": "docker compose -f docker-compose.base44.yml up -d",
   "secrets": [
     {
+      "name": "NEXT_PUBLIC_SUPABASE_URL",
+      "description": "Supabase project URL (e.g. https://<ref>.supabase.co). Find in Supabase Dashboard → Project Settings → API → Project URL.",
+      "requiredAtBoot": true
+    },
+    {
+      "name": "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "description": "Supabase anon/publishable key. Supabase Dashboard → Project Settings → API → Project API keys → anon public. Safe to expose in the browser.",
+      "requiredAtBoot": true
+    },
+    {
+      "name": "SUPABASE_SECRET_KEY",
+      "description": "Supabase service_role key. Supabase Dashboard → Project Settings → API → Project API keys → service_role. Server-only, never exposed to the browser.",
+      "requiredAtBoot": true
+    },
+    {
       "name": "WHATSAPP_TOKEN",
       "description": "Meta WhatsApp Business Cloud API access token (optional — only needed for the WhatsApp game bot). Get it from the Meta App Dashboard > WhatsApp > API Setup.",
       "requiredAtBoot": false

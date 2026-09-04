@@ -1,21 +1,14 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { apiUrl } from "@/lib/api";
+import { getHelpArticleBySlug } from "@/lib/queries/public-server";
 import { Container } from "@/components/layout/container";
 import { Badge } from "@/components/ui/badge";
 
 type Article = { id: string; title: string; content: string; category: string; updatedAt: string };
 
 async function fetchArticle(slug: string): Promise<Article | null> {
-  try {
-    const res = await fetch(apiUrl(`/api/public/help-articles/${slug}`), { next: { revalidate: 60 } });
-    if (!res.ok) return null;
-    const payload = (await res.json()) as { data: Article };
-    return payload.data;
-  } catch {
-    return null;
-  }
+  return getHelpArticleBySlug(slug);
 }
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {

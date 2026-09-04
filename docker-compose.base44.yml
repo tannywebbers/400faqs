@@ -105,6 +105,8 @@ services:
     volumes:
       - ./:/app
       - node_modules:/app/node_modules
+    env_file:
+      - /run/base44/app.env
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_API_URL=https://4000-${BASE44_PUBLIC_HOST_SUFFIX}

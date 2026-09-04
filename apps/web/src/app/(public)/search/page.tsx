@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { Search, FolderOpen, HelpCircle, ArrowRight } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { searchAll, type SearchResult as SearchResultData } from "@/lib/queries/public-client";
 import { Container } from "@/components/layout/container";
 import { PageHeader } from "@/components/page-header";
 import { Input } from "@/components/ui/input";
@@ -13,11 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDebounce } from "@/hooks/use-debounce";
 
-type SearchResult = {
-  categories: { id: string; name: string; slug: string; icon: string; questionCount: number }[];
-  questions: { id: string; text: string; type: string; categoryName: string; categorySlug: string }[];
-  articles: { id: string; title: string; slug: string; category: string }[];
-};
+type SearchResult = SearchResultData;
 
 export default function SearchPage() {
   const [q, setQ] = useState("");
@@ -25,7 +21,7 @@ export default function SearchPage() {
 
   const query = useQuery<SearchResult>({
     queryKey: ["search", debounced],
-    queryFn: () => apiFetch(`/api/public/search?q=${encodeURIComponent(debounced)}`),
+    queryFn: () => searchAll(debounced),
     enabled: debounced.length >= 2,
   });
 

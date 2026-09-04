@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { apiUrl } from "@/lib/api";
+import { getCategoryBySlug, type CategoryDetail } from "@/lib/queries/public-server";
 import { Container } from "@/components/layout/container";
 import { Badge } from "@/components/ui/badge";
 import { MessageCircle, Flag, Users, HelpCircle, BookOpen } from "lucide-react";
@@ -8,32 +8,8 @@ import { whatsappLink } from "@/lib/utils";
 import Link from "next/link";
 import { AdPlacement } from "@/components/ad/ad-placement";
 
-type CategoryDetail = {
-  id: string;
-  name: string;
-  slug: string;
-  description: string;
-  rules: string | null;
-  icon: string;
-  color: string;
-  questionCount: number;
-  playCount: number;
-  trending: boolean;
-  contributorCount: number;
-  reportCount: number;
-  createdByName: string;
-  recentlyAdded: { id: string; text: string; type: "TRUTH" | "DARE" | "NORMAL" }[];
-};
-
 async function fetchCategory(slug: string): Promise<CategoryDetail | null> {
-  try {
-    const res = await fetch(apiUrl(`/api/public/categories/${slug}`), { next: { revalidate: 60 } });
-    if (!res.ok) return null;
-    const payload = (await res.json()) as { data: CategoryDetail };
-    return payload.data;
-  } catch {
-    return null;
-  }
+  return getCategoryBySlug(slug);
 }
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { Mail, MessageCircle, HelpCircle } from "lucide-react";
 import Link from "next/link";
-import { apiFetch } from "@/lib/api";
+import { submitContact } from "@/lib/queries/public-client";
 import { Container } from "@/components/layout/container";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,7 +39,7 @@ export default function ContactPage() {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      await apiFetch("/api/public/contact", { method: "POST", body: values });
+      await submitContact(values);
       toast.success("Message sent! We'll get back to you soon.");
       reset();
     } catch (err) {
