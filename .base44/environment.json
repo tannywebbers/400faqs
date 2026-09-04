@@ -1,0 +1,32 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "WHATSAPP_TOKEN",
+      "description": "Meta WhatsApp Business Cloud API access token (optional — only needed for the WhatsApp game bot). Get it from the Meta App Dashboard > WhatsApp > API Setup.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "WHATSAPP_PHONE_NUMBER_ID",
+      "description": "WhatsApp Business phone number ID (optional — paired with WHATSAPP_TOKEN). From the Meta App Dashboard > WhatsApp > API Setup.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "WHATSAPP_APP_SECRET",
+      "description": "Meta app secret used to verify X-Hub-Signature-256 on webhooks (optional). From the Meta App Dashboard > App Settings > Basic.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "GOOGLE_AI_API_KEY",
+      "description": "Google AI (Gemini) API key for duplicate-question detection (optional). From Google AI Studio at aistudio.google.com.",
+      "requiredAtBoot": false
+    },
+    {
+      "name": "OPENAI_API_KEY",
+      "description": "OpenAI API key (optional, reserved — not required for the core game). From platform.openai.com.",
+      "requiredAtBoot": false
+    }
+  ]
+}
