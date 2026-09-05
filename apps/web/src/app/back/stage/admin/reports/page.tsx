@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
 import { ShieldAlert, Eye } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { listReports, resolveReport, type Report } from "@/lib/admin/review";
 import { useAdminList } from "@/hooks/use-admin-list";
 import { AdminToolbar } from "@/components/admin/table-toolbar";
 import { Button } from "@/components/ui/button";
@@ -19,20 +19,6 @@ import { EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/pagination";
 import { formatDate, maskPhone } from "@/lib/utils";
 
-type Report = {
-  id: string;
-  ticket: string;
-  reason: string;
-  notes: string | null;
-  status: "OPEN" | "IN_PROGRESS" | "RESOLVED" | "DISMISSED";
-  reporterPhone: string;
-  screenshotUrl: string | null;
-  category: { name: string };
-  question: { text: string } | null;
-  resolution: string | null;
-  createdAt: string;
-};
-
 const STATUS_BADGE: Record<Report["status"], "red" | "orange" | "green" | "gray"> = {
   OPEN: "red",
   IN_PROGRESS: "orange",
@@ -41,21 +27,20 @@ const STATUS_BADGE: Record<Report["status"], "red" | "orange" | "green" | "gray"
 };
 
 export default function AdminReportsPage() {
-  const token = getToken();
   const qc = useQueryClient();
   const [viewing, setViewing] = useState<Report | null>(null);
   const [resolution, setResolution] = useState("");
 
-  const list = useAdminList<Report>({ path: "/api/admin/reports" });
+  const list = useAdminList<Report>({ queryKey: "admin-reports", queryFn: (p) => listReports(p), limit: 20 });
 
   const update = useMutation({
-    mutationFn: (status: Report["status"]) =>
-      apiFetch(`/api/admin/reports/${viewing?.id}`, { method: "PATCH", token, body: { status, resolution } }),
+    mutationFn: ({ id, status }: { id: string; status: Report["status"] }) =>
+      resolveReport(id, status, resolution),
     onSuccess: () => {
       toast.success("Report updated");
       setViewing(null);
       setResolution("");
-      qc.invalidateQueries({ queryKey: ["/api/admin/reports"] });
+      qc.invalidateQueries({ queryKey: ["admin-reports"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Update failed"),
   });
@@ -175,7 +160,7 @@ export default function AdminReportsPage() {
               </div>
               <div className="space-y-2">
                 <Label>Status</Label>
-                <Select value={viewing.status} onValueChange={(v) => update.mutate(v as Report["status"])}>
+                <Select value={viewing.status} onValueChange={(v) => update.mutate({ id: viewing.id, status: v as Report["status"] })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -193,7 +178,7 @@ export default function AdminReportsPage() {
             <Button variant="outline" onClick={() => setViewing(null)}>
               Close
             </Button>
-            <Button loading={update.isPending} onClick={() => update.mutate("RESOLVED")}>
+            <Button loading={update.isPending} onClick={() => viewing && update.mutate({ id: viewing.id, status: "RESOLVED" })}>
               Mark Resolved
             </Button>
           </DialogFooter>

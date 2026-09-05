@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
 import { Mail, MailOpen } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { listContactMessages, updateContactMessageStatus, type ContactMessage } from "@/lib/admin/review";
 import { useAdminList } from "@/hooks/use-admin-list";
 import { AdminToolbar } from "@/components/admin/table-toolbar";
 import { Button } from "@/components/ui/button";
@@ -17,21 +17,17 @@ import { EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/pagination";
 import { formatDateTime } from "@/lib/utils";
 
-type Message = { id: string; name: string; email: string; subject: string; message: string; status: "NEW" | "READ" | "RESPONDED"; createdAt: string };
-
 export default function AdminContactPage() {
-  const token = getToken();
   const qc = useQueryClient();
-  const [viewing, setViewing] = useState<Message | null>(null);
+  const [viewing, setViewing] = useState<ContactMessage | null>(null);
 
-  const list = useAdminList<Message>({ path: "/api/admin/contact" });
+  const list = useAdminList<ContactMessage>({ queryKey: "admin-contact", queryFn: (p) => listContactMessages(p), limit: 20 });
 
   const markStatus = useMutation({
-    mutationFn: (status: Message["status"]) =>
-      apiFetch(`/api/admin/contact/${viewing?.id}`, { method: "PATCH", token, body: { status } }),
+    mutationFn: ({ id, status }: { id: string; status: string }) => updateContactMessageStatus(id, status),
     onSuccess: () => {
       toast.success("Message updated");
-      qc.invalidateQueries({ queryKey: ["/api/admin/contact"] });
+      qc.invalidateQueries({ queryKey: ["admin-contact"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Update failed"),
   });
@@ -130,11 +126,11 @@ export default function AdminContactPage() {
                 </a>
                 <div className="flex gap-2">
                   {viewing.status === "NEW" && (
-                    <Button variant="outline" onClick={() => markStatus.mutate("READ")}>
+                    <Button variant="outline" onClick={() => markStatus.mutate({ id: viewing.id, status: "READ" })}>
                       <MailOpen className="h-4 w-4" /> Mark Read
                     </Button>
                   )}
-                  <Button variant="outline" onClick={() => markStatus.mutate("RESPONDED")}>
+                  <Button variant="outline" onClick={() => markStatus.mutate({ id: viewing.id, status: "RESPONDED" })}>
                     Mark Responded
                   </Button>
                 </div>
