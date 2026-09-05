@@ -1,13 +1,13 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { useState } from "react";
 import { Plus, Pencil, Trash2 } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { listCategories, createCategory, updateCategory, deleteCategory, type Category } from "@/lib/admin/categories";
 import { useAdminList } from "@/hooks/use-admin-list";
 import { AdminToolbar } from "@/components/admin/table-toolbar";
 import { Button } from "@/components/ui/button";
@@ -20,20 +20,6 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/pagination";
-
-type Category = {
-  id: string;
-  name: string;
-  slug: string;
-  description: string;
-  rules: string | null;
-  icon: string;
-  color: string;
-  status: "ACTIVE" | "ARCHIVED";
-  trending: boolean;
-  questionCount: number;
-  playCount: number;
-};
 
 const schema = z.object({
   name: z.string().min(2).max(60),
@@ -51,22 +37,15 @@ const ICONS = ["✨", "🔥", "🎬", "🎮", "❤️", "😆", "🌍", "⚽", "
 const COLORS = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444", "#8b5cf6", "#14b8a6"];
 
 export default function AdminCategoriesPage() {
-  const token = getToken();
   const qc = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
 
-  const list = useAdminList<Category>({ path: "/api/admin/categories" });
+  const list = useAdminList<Category>({ queryKey: "admin-categories", queryFn: (p) => listCategories(p) });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { icon: "✨", color: "#6366f1", status: "ACTIVE", trending: false },
-  });
-
-  const categoriesQuery = useQuery<Category[]>({
-    queryKey: ["admin-categories-all"],
-    queryFn: () => apiFetch("/api/admin/categories?limit=100", { token }),
-    enabled: false,
   });
 
   const openCreate = () => {
@@ -92,21 +71,21 @@ export default function AdminCategoriesPage() {
   const save = useMutation({
     mutationFn: (values: FormValues) =>
       editing
-        ? apiFetch(`/api/admin/categories/${editing.id}`, { method: "PUT", token, body: values })
-        : apiFetch("/api/admin/categories", { method: "POST", token, body: values }),
+        ? updateCategory(editing.id, values)
+        : createCategory(values),
     onSuccess: () => {
       toast.success(editing ? "Category updated" : "Category created");
       setDialogOpen(false);
-      qc.invalidateQueries({ queryKey: ["/api/admin/categories"] });
+      qc.invalidateQueries({ queryKey: ["admin-categories"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Save failed"),
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/admin/categories/${id}`, { method: "DELETE", token }),
+    mutationFn: (id: string) => deleteCategory(id),
     onSuccess: () => {
       toast.success("Category deleted");
-      qc.invalidateQueries({ queryKey: ["/api/admin/categories"] });
+      qc.invalidateQueries({ queryKey: ["admin-categories"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
   });

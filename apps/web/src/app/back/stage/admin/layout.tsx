@@ -31,7 +31,8 @@ import {
   Image as ImageIcon,
   LayoutTemplate,
 } from "lucide-react";
-import { getToken, clearToken, getAdminUser } from "@/lib/api";
+import { getAdminUser, clearAdminUser } from "@/lib/api";
+import { logoutAdmin } from "@/lib/admin/session";
 import { cn } from "@/lib/utils";
 
 const NAV_GROUPS: { label: string; items: { href: string; label: string; icon: typeof LayoutDashboard; exact?: boolean }[] }[] = [
@@ -101,7 +102,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     setMounted(true);
-    if (!getToken()) {
+    if (!getAdminUser()) {
       router.replace("/back/stage/admin/login");
     }
   }, [router]);
@@ -112,7 +113,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const isLoginPage = pathname === "/back/stage/admin/login";
 
-  if (!mounted || !getToken()) {
+  if (!mounted || !getAdminUser()) {
     if (isLoginPage) {
       return <>{children}</>;
     }
@@ -125,8 +126,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const admin = getAdminUser();
 
-  const logout = () => {
-    clearToken();
+  const logout = async () => {
+    await logoutAdmin();
+    clearAdminUser();
     router.replace("/back/stage/admin/login");
   };
 

@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { apiFetch, getToken } from "@/lib/api";
 import { useDebounce } from "@/hooks/use-debounce";
 
 export type AdminListResult<T> = {
@@ -13,11 +12,13 @@ export type AdminListResult<T> = {
 };
 
 export function useAdminList<T>({
-  path,
+  queryFn,
+  queryKey,
   limit = 20,
   enabled = true,
 }: {
-  path: string;
+  queryFn: (params: { page: number; limit: number; q: string; status: string }) => Promise<AdminListResult<T>>;
+  queryKey: string;
   limit?: number;
   enabled?: boolean;
 }) {
@@ -25,16 +26,10 @@ export function useAdminList<T>({
   const [status, setStatus] = useState<string>("");
   const [page, setPage] = useState(1);
   const debounced = useDebounce(q, 400);
-  const token = getToken();
 
   const query = useQuery<AdminListResult<T>>({
-    queryKey: [path, debounced, status, page],
-    queryFn: () => {
-      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-      if (debounced) params.set("q", debounced);
-      if (status) params.set("status", status);
-      return apiFetch(`${path}?${params.toString()}`, { token });
-    },
+    queryKey: [queryKey, debounced, status, page],
+    queryFn: () => queryFn({ page, limit, q: debounced, status }),
     placeholderData: (prev) => prev,
     enabled,
   });

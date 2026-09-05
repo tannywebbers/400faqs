@@ -4,7 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
 import { Plus, Trash2, CheckCircle2, XCircle } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { listQuestions, createQuestion, reviewQuestion, deleteQuestion, type Question } from "@/lib/admin/questions";
+import { listAllCategoriesSimple } from "@/lib/admin/categories";
 import { useAdminList } from "@/hooks/use-admin-list";
 import { AdminToolbar } from "@/components/admin/table-toolbar";
 import { Button } from "@/components/ui/button";
@@ -20,21 +21,6 @@ import { EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/pagination";
 import { formatDate } from "@/lib/utils";
 
-type Question = {
-  id: string;
-  text: string;
-  type: "TRUTH" | "DARE" | "NORMAL";
-  status: "PENDING" | "APPROVED" | "REJECTED";
-  source: "COMMUNITY" | "ADMIN";
-  difficulty: number;
-  playsCount: number;
-  reportCount: number;
-  createdAt: string;
-  category: { id: string; name: string };
-  contributor: { phone: string; name: string | null } | null;
-  rejectionReason: string | null;
-};
-
 const STATUS_BADGE: Record<Question["status"], "orange" | "green" | "red"> = {
   PENDING: "orange",
   APPROVED: "green",
@@ -42,53 +28,48 @@ const STATUS_BADGE: Record<Question["status"], "orange" | "green" | "red"> = {
 };
 
 export default function AdminQuestionsPage() {
-  const token = getToken();
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [reviewing, setReviewing] = useState<Question | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
-  const list = useAdminList<Question>({ path: "/api/admin/questions", limit: 20 });
+  const list = useAdminList<Question>({ queryKey: "admin-questions", queryFn: (p) => listQuestions(p), limit: 20 });
 
   const categories = useQuery<{ id: string; name: string }[]>({
     queryKey: ["admin-categories-simple"],
-    queryFn: () => apiFetch("/api/admin/categories?limit=200", { token }),
+    queryFn: () => listAllCategoriesSimple(),
   });
 
   const [form, setForm] = useState({ text: "", type: "NORMAL" as Question["type"], categoryId: "" });
 
   const create = useMutation({
-    mutationFn: () => apiFetch("/api/admin/questions", { method: "POST", token, body: form }),
+    mutationFn: () => createQuestion(form),
     onSuccess: () => {
       toast.success("Question created");
       setCreateOpen(false);
       setForm({ text: "", type: "NORMAL", categoryId: "" });
-      qc.invalidateQueries({ queryKey: ["/api/admin/questions"] });
+      qc.invalidateQueries({ queryKey: ["admin-questions"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Create failed"),
   });
 
   const review = useMutation({
     mutationFn: ({ id, approved }: { id: string; approved: boolean }) =>
-      apiFetch(`/api/admin/questions/${id}/review`, {
-        method: "PATCH",
-        token,
-        body: approved ? { status: "APPROVED" } : { status: "REJECTED", rejectionReason },
-      }),
+      approved ? reviewQuestion(id, "APPROVED") : reviewQuestion(id, "REJECTED", rejectionReason),
     onSuccess: () => {
       toast.success("Review saved");
       setReviewing(null);
       setRejectionReason("");
-      qc.invalidateQueries({ queryKey: ["/api/admin/questions"] });
+      qc.invalidateQueries({ queryKey: ["admin-questions"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Review failed"),
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/admin/questions/${id}`, { method: "DELETE", token }),
+    mutationFn: (id: string) => deleteQuestion(id),
     onSuccess: () => {
       toast.success("Question deleted");
-      qc.invalidateQueries({ queryKey: ["/api/admin/questions"] });
+      qc.invalidateQueries({ queryKey: ["admin-questions"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
   });

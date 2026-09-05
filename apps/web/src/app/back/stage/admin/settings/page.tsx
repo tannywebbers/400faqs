@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useEffect, useRef, useState } from "react";
 import { Save, Sparkles, Settings as SettingsIcon, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch, getToken } from "@/lib/api";
+import { getAllSettings, updateSettings, type SettingRow } from "@/lib/admin/content";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,8 +13,6 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-
-type SettingRow = { key: string; value: string; type: string; group: string; description: string | null; public: boolean };
 
 type FieldDef = {
   key: string;
@@ -185,14 +183,13 @@ function isBooleanString(value: string | undefined): boolean {
 }
 
 export default function AdminSettingsPage() {
-  const token = getToken();
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [activeLabel, setActiveLabel] = useState<string | null>(null);
   const hydrated = useRef(false);
 
   const query = useQuery<SettingRow[]>({
     queryKey: ["admin-settings"],
-    queryFn: () => apiFetch("/api/admin/settings", { token }),
+    queryFn: () => getAllSettings(),
   });
 
   useEffect(() => {
@@ -214,7 +211,7 @@ export default function AdminSettingsPage() {
           group: g.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
         }))
       );
-      return apiFetch("/api/admin/settings", { method: "PUT", token, body: { entries } });
+      return updateSettings(entries);
     },
     onSuccess: () => {
       toast.success("Settings saved");
