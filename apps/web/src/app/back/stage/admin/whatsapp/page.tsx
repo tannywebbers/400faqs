@@ -23,6 +23,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { apiFetch, getToken } from "@/lib/api";
+import { getWhatsAppStatus, listMessageTemplates, getTemplateStats, listMessageLogs, listWhatsAppSessions, updateWhatsAppConfig, type WhatsAppStatus, type MessageTemplate, type TemplateStats, type MessageLogEntry, type WhatsAppSession } from "@/lib/admin/whatsapp";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -34,54 +35,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { maskPhone, formatDateTime, timeAgo } from "@/lib/utils";
 
-type WhatsAppStatus = {
-  configured: boolean;
-  phoneNumberId: string;
-  businessAccountId: string;
-  webhookVerifyToken: string;
-  graphVersion: string;
-  apiBase: string;
-  appId: string;
-  maskedToken: string;
-  maskedSecret: string;
-  source: "env" | "database";
-  connection: { connected: boolean; phoneInfo?: { verifiedName?: string; displayPhoneNumber?: string }; error?: string };
-  stats: { activeSessions: number; messagesInbound: number; messagesOutbound: number; totalMessages: number };
-  botNumber?: string;
-  publicStartLink?: string | null;
-  monetizationEnabled?: boolean;
-  webhookUrl: string;
-};
-
-type MessageTemplate = {
-  id: string;
-  name: string;
-  category: string;
-  language: string;
-  header: string | null;
-  body: string;
-  footer: string | null;
-  buttons: unknown;
-  status: string;
-  metaStatus: string | null;
-  metaRejectionReason: string | null;
-  waTemplateId: string | null;
-  metaUpdatedAt: string | null;
-  usageCount: number;
-  createdAt: string;
-};
-
-type TemplateStats = {
-  total: number;
-  draft: number;
-  active: number;
-  submitted: number;
-  approved: number;
-  rejected: number;
-  archived: number;
-  synced: number;
-};
-
 type TemplateSyncResult = {
   synced: boolean;
   remote: boolean;
@@ -89,28 +42,6 @@ type TemplateSyncResult = {
   created: number;
   updated: number;
   warning: string | null;
-};
-
-type MessageLogEntry = {
-  id: string;
-  direction: string;
-  phone: string;
-  type: string;
-  status: string;
-  content: Record<string, unknown>;
-  error: string | null;
-  createdAt: string;
-};
-
-type Session = {
-  id: string;
-  inviteCode: string;
-  status: string;
-  creator: { phone: string; name: string | null };
-  joiner: { phone: string; name: string | null } | null;
-  category: { name: string } | null;
-  _count: { moves: number };
-  createdAt: string;
 };
 
 const STATUS_COLOR: Record<string, "green" | "orange" | "gray" | "blue" | "red"> = {
@@ -159,45 +90,34 @@ export default function AdminWhatsAppPage() {
 
   const statusQuery = useQuery<WhatsAppStatus>({
     queryKey: ["admin-whatsapp-status"],
-    queryFn: () => apiFetch("/api/admin/whatsapp/status", { token }),
+    queryFn: () => getWhatsAppStatus(),
     refetchInterval: 30_000,
   });
 
   const templatesQuery = useQuery<{ data: MessageTemplate[]; total: number; totalPages: number }>({
     queryKey: ["admin-wa-templates"],
-    queryFn: () => apiFetch("/api/admin/whatsapp/templates", { token }),
+    queryFn: () => listMessageTemplates({ limit: 100 }),
   });
 
   const templateStatsQuery = useQuery<TemplateStats>({
     queryKey: ["admin-wa-template-stats"],
-    queryFn: () => apiFetch("/api/admin/whatsapp/templates/stats", { token }),
+    queryFn: () => getTemplateStats(),
   });
 
   const messagesQuery = useQuery<{ data: MessageLogEntry[]; total: number; totalPages: number }>({
     queryKey: ["admin-wa-messages", msgFilter, msgPage],
-    queryFn: () => {
-      const params = new URLSearchParams({ page: String(msgPage), limit: "30" });
-      if (msgFilter.direction) params.set("direction", msgFilter.direction);
-      if (msgFilter.phone) params.set("phone", msgFilter.phone);
-      if (msgFilter.status) params.set("status", msgFilter.status);
-      return apiFetch(`/api/admin/whatsapp/messages?${params}`, { token });
-    },
+    queryFn: () => listMessageLogs({ page: msgPage, limit: 30, direction: msgFilter.direction || undefined, phone: msgFilter.phone || undefined, status: msgFilter.status || undefined }),
   });
 
-  const sessionsQuery = useQuery<{ data: Session[]; total: number; totalPages: number }>({
+  const sessionsQuery = useQuery<{ data: WhatsAppSession[]; total: number; totalPages: number }>({
     queryKey: ["admin-wa-sessions", sessionFilter, sessionPage],
-    queryFn: () => {
-      const params = new URLSearchParams({ page: String(sessionPage), limit: "20" });
-      if (sessionFilter) params.set("status", sessionFilter);
-      return apiFetch(`/api/admin/whatsapp/sessions?${params}`, { token });
-    },
+    queryFn: () => listWhatsAppSessions({ page: sessionPage, limit: 20, status: sessionFilter || undefined }),
   });
 
   // ── Mutations ────────────────────────────────────────────
 
   const updateConfigMutation = useMutation({
-    mutationFn: (data: Record<string, string>) =>
-      apiFetch("/api/admin/whatsapp/config", { method: "PUT", body: data, token }),
+    mutationFn: (data: Record<string, string>) => updateWhatsAppConfig(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-whatsapp-status"] });
     },

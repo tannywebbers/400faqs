@@ -26,7 +26,7 @@ import {
   Users,
   Gift,
 } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { listLandingSections, updateLandingSection, reorderLandingSections, type LandingSection } from "@/lib/admin/landing";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,20 +45,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-type LandingSection = {
-  id: string;
-  sectionKey: string;
-  title: string | null;
-  subtitle: string | null;
-  content: string | null;
-  imageUrl: string | null;
-  buttonText: string | null;
-  buttonUrl: string | null;
-  isVisible: boolean;
-  sortOrder: number;
-  metadata: unknown;
-};
 
 type StepItem = { title: string; description: string };
 type StatItem = { value: string; label: string };
@@ -135,7 +121,6 @@ function Field({ label, children, help }: { label: string; children?: ReactNode;
 }
 
 export default function LandingEditorPage() {
-  const token = getToken();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<LandingSection | null>(null);
   const [editMode, setEditMode] = useState<"visual" | "html">("visual");
@@ -149,7 +134,7 @@ export default function LandingEditorPage() {
 
   const { data: sections = [], isLoading, refetch } = useQuery<LandingSection[]>({
     queryKey: ["admin-landing"],
-    queryFn: () => apiFetch("/api/admin/landing", { token }),
+    queryFn: () => listLandingSections(),
   });
 
   const bumpPreview = () => setPreviewKey((k) => k + 1);
@@ -225,7 +210,7 @@ export default function LandingEditorPage() {
               <div className="flex items-center justify-between">
                 <Badge variant="outline">Stat {i + 1}</Badge>
                 <IconBtn onClick={() => setStats(stats.filter((_, idx) => idx !== i))} className="text-red-500" aria-label="Remove stat">
-                  <Trash2 className="h-3 w-3" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </IconBtn>
               </div>
               <Input value={stat.value} placeholder='Value key: questions, categories, games, players' onChange={(e) => updateAt(stats, i, { value: e.target.value }, setStats)} />
@@ -263,7 +248,7 @@ export default function LandingEditorPage() {
                   </SelectContent>
                 </Select>
                 <IconBtn onClick={() => setFeatures(features.filter((_, idx) => idx !== i))} className="text-red-500" aria-label="Remove feature">
-                  <Trash2 className="h-3 w-3" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </IconBtn>
               </div>
               <Input value={feat.title} placeholder="Feature title" onChange={(e) => updateAt(features, i, { title: e.target.value }, setFeatures)} />
@@ -320,18 +305,14 @@ export default function LandingEditorPage() {
     else if (["privacy_policy", "terms_of_service", "cookies_policy"].includes(editing.sectionKey)) content = JSON.stringify(legalSections);
 
     try {
-      const updated = await apiFetch<LandingSection>(`/api/admin/landing/${editing.id}`, {
-        method: "PUT",
-        token,
-        body: {
-          title: editing.title,
-          subtitle: editing.subtitle,
-          content,
-          imageUrl: editing.imageUrl,
-          buttonText: editing.buttonText,
-          buttonUrl: editing.buttonUrl,
-          isVisible: editing.isVisible,
-        },
+      const updated = await updateLandingSection(editing.id, {
+        title: editing.title,
+        subtitle: editing.subtitle,
+        content,
+        imageUrl: editing.imageUrl,
+        buttonText: editing.buttonText,
+        buttonUrl: editing.buttonUrl,
+        isVisible: editing.isVisible,
       });
       qc.setQueryData<LandingSection[]>(["admin-landing"], (prev) => (prev ?? []).map((s) => (s.id === updated.id ? updated : s)));
       toast.success(`${sectionLabel(editing.sectionKey)} saved`);
@@ -344,11 +325,7 @@ export default function LandingEditorPage() {
 
   const toggleVisibility = async (section: LandingSection) => {
     try {
-      const updated = await apiFetch<LandingSection>(`/api/admin/landing/${section.id}`, {
-        method: "PUT",
-        token,
-        body: { isVisible: !section.isVisible },
-      });
+      const updated = await updateLandingSection(section.id, { isVisible: !section.isVisible });
       qc.setQueryData<LandingSection[]>(["admin-landing"], (prev) => (prev ?? []).map((s) => (s.id === updated.id ? updated : s)));
       toast.success(`${sectionLabel(section.sectionKey)} is now ${updated.isVisible ? "visible" : "hidden"}`);
     } catch {
@@ -366,11 +343,7 @@ export default function LandingEditorPage() {
     const ordered = next.map((s, i) => ({ ...s, sortOrder: i }));
     qc.setQueryData(["admin-landing"], ordered);
     try {
-      await apiFetch("/api/admin/landing/reorder", {
-        method: "POST",
-        token,
-        body: { items: ordered.map((s) => ({ id: s.id, sortOrder: s.sortOrder })) },
-      });
+      await reorderLandingSections(ordered.map((s) => ({ id: s.id, sortOrder: s.sortOrder })));
       toast.success("Order updated");
     } catch {
       toast.error("Failed to reorder sections");

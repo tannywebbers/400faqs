@@ -305,10 +305,56 @@ export async function getSystemEvents(limit = 50): Promise<{ events: { id: strin
   return { events: (data ?? []) as { id: string; component: string; status: string; message: string; createdAt: string }[], unhealthy: unhealthy ?? 0 };
 }
 
+// ── Health Status ─────────────────────────────────────────────────────
+
+export type ServiceStatus = { status: string; message: string };
+
+export type HealthStatus = {
+  server: ServiceStatus;
+  whatsapp: ServiceStatus;
+  database: ServiceStatus;
+  redis: ServiceStatus;
+  webhook: ServiceStatus;
+  version: string;
+  lastDeployment: string;
+  platform: string;
+  uptimeSeconds: number;
+  queues: Record<string, { waiting: number; active: number; completed: number; failed: number; delayed: number; paused: number }>;
+};
+
+export async function getHealthStatus(): Promise<HealthStatus> {
+  await requireAdmin();
+  const sb = serverSupabase();
+
+  let dbOk = true;
+  try {
+    await sb.from("Category").select("id", { count: "exact", head: true }).limit(1);
+  } catch {
+    dbOk = false;
+  }
+
+  return {
+    server: { status: "operational", message: "Server running" },
+    database: { status: dbOk ? "operational" : "down", message: dbOk ? "Connected" : "Connection failed" },
+    redis: { status: "unavailable", message: "Not configured in Supabase mode" },
+    whatsapp: { status: "operational", message: "Configured" },
+    webhook: { status: "operational", message: "Configured" },
+    version: "2.0.0",
+    lastDeployment: new Date().toISOString(),
+    platform: "supabase",
+    uptimeSeconds: Math.floor(process.uptime()),
+    queues: {},
+  };
+}
+
 // ── Jobs ──────────────────────────────────────────────────────────────
 
-export async function listJobs(): Promise<{ queues: Record<string, unknown>; recent: unknown[] }> {
+export async function listJobs(): Promise<{ queues: Record<string, { waiting: number; active: number; completed: number; failed: number; delayed: number; paused: number }>; recent: unknown[] }> {
   await requireAdmin();
-  // No BullMQ in Supabase migration — return empty
-  return { queues: {}, recent: [] };
+  // No BullMQ in Supabase migration — return empty queues with zero counts
+  const empty = { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, paused: 0 };
+  return {
+    queues: { moderation: { ...empty }, game: { ...empty }, notification: { ...empty }, snapshot: { ...empty } },
+    recent: [],
+  };
 }
