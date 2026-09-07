@@ -211,6 +211,115 @@ export async function listWhatsAppSessions(params: { page?: number; limit?: numb
   return paginate(items, page, limit, count ?? 0);
 }
 
+export async function regenerateWebhook(): Promise<{ webhookVerifyToken: string; webhookUrl: string }> {
+  const admin = await requireAdmin();
+  const token = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  await serverSupabase().from("Setting").upsert({ key: "whatsapp.webhookVerifyToken", value: token, group: "whatsapp" }, { onConflict: "key" });
+  const s = await readSettings(["whatsapp.webhookBase"]);
+  const webhookUrl = s["whatsapp.webhookBase"] ? `${s["whatsapp.webhookBase"]}/api/whatsapp/webhook` : "";
+  await audit(admin.id, "WEBHOOK_TOKEN_REGENERATE", "whatsapp", undefined, { webhookUrl });
+  return { webhookVerifyToken: token, webhookUrl };
+}
+
+export async function testSendWhatsApp(phone: string, message: string): Promise<{ message: string }> {
+  const admin = await requireAdmin();
+  const s = await readSettings(["whatsapp.accessToken", "whatsapp.phoneNumberId", "whatsapp.graphVersion", "whatsapp.apiBase"]);
+  const accessToken = s["whatsapp.accessToken"] ?? "";
+  const phoneNumberId = s["whatsapp.phoneNumberId"] ?? "";
+  const graphVersion = s["whatsapp.graphVersion"] ?? "v18.0";
+  const apiBase = s["whatsapp.apiBase"] ?? "https://graph.facebook.com";
+
+  if (!accessToken || !phoneNumberId) throw new Error("WhatsApp not configured — set access token and phone number ID first");
+
+  const url = `${apiBase}/${graphVersion}/${phoneNumberId}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: phone.replace(/\D/g, ""),
+      type: "text",
+      text: { body: message },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Failed to send: ${(err as Record<string, unknown>).error?.message ?? res.statusText}`);
+  }
+
+  await audit(admin.id, "TEST_SEND", "whatsapp", undefined, { phone });
+  return { message: "Message sent" };
+}
+
+export async function syncTemplates(): Promise<{ synced: boolean; remote: boolean; count: number; created: number; updated: number; warning: string | null }> {
+  const admin = await requireAdmin();
+  const s = await readSettings(["whatsapp.accessToken", "whatsapp.businessAccountId", "whatsapp.graphVersion", "whatsapp.apiBase"]);
+  const accessToken = s["whatsapp.accessToken"] ?? "";
+  const businessAccountId = s["whatsapp.businessAccountId"] ?? "";
+  const graphVersion = s["whatsapp.graphVersion"] ?? "v18.0";
+  const apiBase = s["whatsapp.apiBase"] ?? "https://graph.facebook.com";
+
+  if (!accessToken || !businessAccountId) {
+    return { synced: false, remote: false, count: 0, created: 0, updated: 0, warning: "WhatsApp not configured — cannot sync templates from Meta" };
+  }
+
+  const url = `${apiBase}/${graphVersion}/${businessAccountId}/message_templates?limit=250`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) {
+    return { synced: false, remote: true, count: 0, created: 0, updated: 0, warning: `Meta API returned ${res.status}` };
+  }
+
+  const payload = (await res.json()) as { data?: Array<Record<string, unknown>> };
+  const remoteTemplates = payload.data ?? [];
+  let created = 0;
+  let updated = 0;
+
+  for (const t of remoteTemplates) {
+    const name = String(t.name ?? "");
+    const waTemplateId = String(t.id ?? "");
+    const status = String(t.status ?? "PENDING").toUpperCase();
+    const category = String(t.category ?? "MARKETING");
+    const language = String(t.language ?? "en");
+    const components = (t.components ?? []) as Array<Record<string, unknown>>;
+    const bodyComp = components.find((c) => c.type === "BODY");
+    const headerComp = components.find((c) => c.type === "HEADER");
+    const footerComp = components.find((c) => c.type === "FOOTER");
+    const body = String((bodyComp as Record<string, unknown> | undefined)?.text ?? "");
+    const header = headerComp ? String((headerComp as Record<string, unknown>).format ?? "") : null;
+    const footer = footerComp ? String((footerComp as Record<string, unknown>).text ?? "") : null;
+
+    const existing = await serverSupabase().from("MessageTemplate").select("id").eq("waTemplateId", waTemplateId).maybeSingle();
+    const row = {
+      name,
+      waTemplateId,
+      status,
+      category,
+      language,
+      body,
+      header,
+      footer,
+      buttons: components.filter((c) => c.type === "BUTTONS"),
+      metaStatus: status,
+      metaUpdatedAt: new Date().toISOString(),
+    };
+
+    if (existing.data) {
+      await serverSupabase().from("MessageTemplate").update(row).eq("id", (existing.data as Record<string, string>).id);
+      updated++;
+    } else {
+      await serverSupabase().from("MessageTemplate").insert({ ...row, usageCount: 0 });
+      created++;
+    }
+  }
+
+  await audit(admin.id, "TEMPLATES_SYNCED", "whatsapp", undefined, { count: remoteTemplates.length, created, updated });
+  return { synced: true, remote: true, count: remoteTemplates.length, created, updated, warning: null };
+}
+
 export async function updateWhatsAppConfig(input: Record<string, string>): Promise<void> {
   const admin = await requireAdmin();
   const keys: Record<string, string> = {

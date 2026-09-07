@@ -122,3 +122,74 @@ export async function getAnalyticsSnapshots(days = 120): Promise<SnapshotRow[]> 
 export async function captureAnalyticsSnapshot(): Promise<void> {
   await requireAdmin();
 }
+
+function csvEscape(value: unknown): string {
+  const s = String(value ?? "");
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+export async function exportAnalyticsCsv(dataset: string, params: { from?: string; to?: string }): Promise<string> {
+  await requireAdmin();
+  const sb = serverSupabase();
+
+  if (dataset === "overview") {
+    const { data } = await sb.from("Session").select("createdAt").order("createdAt", { ascending: true });
+    const columns = ["date", "users", "questions", "sessions", "moves", "contributions", "reports", "categoryRequests", "messages", "revenueLedger"];
+    const header = columns.map(csvEscape).join(",");
+    return [header].join("\n");
+  }
+
+  if (dataset === "sessions") {
+    const { data } = await sb.from("Session").select("id, inviteCode, status, createdAt, creatorId, joinerId").order("createdAt", { ascending: false }).limit(500);
+    const columns = ["id", "inviteCode", "status", "createdAt", "creatorId", "joinerId"];
+    const header = columns.map(csvEscape).join(",");
+    const rows = (data ?? []).map((r: Record<string, unknown>) => columns.map((c) => csvEscape(r[c])).join(","));
+    return [header, ...rows].join("\n");
+  }
+
+  if (dataset === "questions") {
+    const { data } = await sb.from("Question").select("id, text, type, status, source, playsCount, reportCount, createdAt").order("createdAt", { ascending: false }).limit(500);
+    const columns = ["id", "text", "type", "status", "source", "playsCount", "reportCount", "createdAt"];
+    const header = columns.map(csvEscape).join(",");
+    const rows = (data ?? []).map((r: Record<string, unknown>) => columns.map((c) => csvEscape(r[c])).join(","));
+    return [header, ...rows].join("\n");
+  }
+
+  if (dataset === "contributions") {
+    const { data } = await sb.from("Contribution").select("id, text, type, status, source, createdAt").order("createdAt", { ascending: false }).limit(500);
+    const columns = ["id", "text", "type", "status", "source", "createdAt"];
+    const header = columns.map(csvEscape).join(",");
+    const rows = (data ?? []).map((r: Record<string, unknown>) => columns.map((c) => csvEscape(r[c])).join(","));
+    return [header, ...rows].join("\n");
+  }
+
+  if (dataset === "whatsapp") {
+    const { data } = await sb.from("MessageLog").select("id, direction, phone, type, status, createdAt").order("createdAt", { ascending: false }).limit(500);
+    const columns = ["id", "direction", "phone", "type", "status", "createdAt"];
+    const header = columns.map(csvEscape).join(",");
+    const rows = (data ?? []).map((r: Record<string, unknown>) => columns.map((c) => csvEscape(r[c])).join(","));
+    return [header, ...rows].join("\n");
+  }
+
+  if (dataset === "monetization") {
+    const { data } = await sb.from("MonetizationGate").select("id, round, status, attempts, createdAt, verifiedAt").order("createdAt", { ascending: false }).limit(500);
+    const columns = ["id", "round", "status", "attempts", "createdAt", "verifiedAt"];
+    const header = columns.map(csvEscape).join(",");
+    const rows = (data ?? []).map((r: Record<string, unknown>) => columns.map((c) => csvEscape(r[c])).join(","));
+    return [header, ...rows].join("\n");
+  }
+
+  if (dataset === "revenue") {
+    const { data } = await sb.from("RevenueLedger").select("id, type, eventType, currency, revenueAmount, payoutAmount, status, createdAt").order("createdAt", { ascending: false }).limit(500);
+    const columns = ["id", "type", "eventType", "currency", "revenueAmount", "payoutAmount", "status", "createdAt"];
+    const header = columns.map(csvEscape).join(",");
+    const rows = (data ?? []).map((r: Record<string, unknown>) => columns.map((c) => csvEscape(r[c])).join(","));
+    return [header, ...rows].join("\n");
+  }
+
+  // ai and other datasets
+  return csvEscape("No data available for dataset: " + dataset);
+}

@@ -22,8 +22,7 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
-import { getWhatsAppStatus, listMessageTemplates, getTemplateStats, listMessageLogs, listWhatsAppSessions, updateWhatsAppConfig, type WhatsAppStatus, type MessageTemplate, type TemplateStats, type MessageLogEntry, type WhatsAppSession } from "@/lib/admin/whatsapp";
+import { getWhatsAppStatus, listMessageTemplates, getTemplateStats, listMessageLogs, listWhatsAppSessions, updateWhatsAppConfig, regenerateWebhook, testSendWhatsApp, syncTemplates, type WhatsAppStatus, type MessageTemplate, type TemplateStats, type MessageLogEntry, type WhatsAppSession } from "@/lib/admin/whatsapp";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";

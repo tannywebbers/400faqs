@@ -18,7 +18,33 @@ import {
   X,
   BarChart3,
 } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import {
+  getMonetizationConfig,
+  updateMonetizationConfig,
+  getMonetizationStats,
+  getMonetizationTypes,
+  listMonetizationProviders,
+  getProviderStats,
+  testProviderConfig,
+  createMonetizationProvider,
+  updateMonetizationProvider,
+  deleteMonetizationProvider,
+  toggleProviderStatus,
+  listMonetizationSnippets,
+  createMonetizationSnippet,
+  updateMonetizationSnippet,
+  toggleSnippetStatus,
+  listMonetizationGates,
+  listMonetizationEvents,
+  type MonetizationConfig,
+  type MonetizationStats,
+  type AdProvider,
+  type AdTypesMeta,
+  type ProviderStats,
+  type AdSnippet,
+  type Gate,
+  type GateEvent,
+} from "@/lib/admin/monetization";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -31,115 +57,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { formatDateTime, timeAgo, maskPhone } from "@/lib/utils";
 
-type MonetizationConfig = {
-  enabled: boolean;
-  roundInterval: number;
-  countdownSeconds: number;
-  codeExpiryMinutes: number;
-  linkExpiryMinutes: number;
-  maxAttempts: number;
-  codeLength: number;
-  codeType: "numeric" | "alphanumeric";
-  rotation: "priority" | "random";
-  defaultProviderId: string;
-  defaultSnippetId: string;
-  directLink: string;
-  directLinkEnabled: boolean;
-};
-
-type MonetizationStats = {
-  total: number;
-  pending: number;
-  verified: number;
-  expired: number;
-  failed: number;
-  cancelled: number;
-  failedVerifications: number;
-  successRate: number;
-  averageVerificationSeconds: number;
-  last7Days: Record<string, number>;
-};
-
-type AdProvider = {
-  id: string;
-  name: string;
-  type: string;
-  description: string | null;
-  enabled: boolean;
-  archived: boolean;
-  priority: number;
-  configuration: unknown;
-  placements: unknown;
-  revenueModel: string;
-  currency: string;
-  cpmRate: number;
-  cpcRate: number;
-  cpaRate: number;
-  fixedPayoutPerVerification: number;
-  createdAt: string;
-  _count?: { snippets: number; gates: number };
-};
-
-type AdTypesMeta = {
-  providerTypes: string[];
-  placements: string[];
-  eventTypes: string[];
-};
-
-type ProviderStats = {
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  verifications: number;
-  verifiedGates: number;
-  ctr: number;
-  conversionRate: number;
-  revenue: { estimated: number; confirmed: number; paid: number; payoutEstimated: number };
-  byEventType: { eventType: string; rows: number; amount: number }[];
-};
-
-type AdSnippet = {
-  id: string;
-  name: string;
-  providerId: string | null;
-  type: string;
-  content: string | null;
-  directLink: string | null;
-  placement: string;
-  enabled: boolean;
-  archived: boolean;
-  priority: number;
-  createdAt: string;
-  provider?: { id: string; name: string } | null;
-};
-
-type Gate = {
-  id: string;
-  round: number;
-  publicToken: string;
-  status: string;
-  attempts: number;
-  createdAt: string;
-  verifiedAt: string | null;
-  unlockAt: string;
-  expiresAt: string;
-  user?: { id: string; phone: string; name: string | null };
-  session?: { id: string; inviteCode: string; status: string; category: { name: string } | null };
-  provider?: { id: string; name: string } | null;
-};
-
-type GateEvent = {
-  id: string;
-  type: string;
-  status: string;
-  metadata: unknown;
-  createdAt: string;
-  user?: { id: string; phone: string; name: string | null };
-  session?: { id: string; inviteCode: string };
-  provider?: { id: string; name: string } | null;
-  placement?: string | null;
-};
-
 const GATE_COLOR: Record<string, "green" | "orange" | "blue" | "red" | "gray" | "purple"> = {
   VERIFIED: "green",
   PENDING: "orange",
@@ -149,7 +66,6 @@ const GATE_COLOR: Record<string, "green" | "orange" | "blue" | "red" | "gray" | 
 };
 
 export default function AdminMonetizationPage() {
-  const token = getToken();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState("overview");
   const [copied, setCopied] = useState<string | null>(null);
@@ -209,7 +125,7 @@ export default function AdminMonetizationPage() {
 
   const configQuery = useQuery<MonetizationConfig>({
     queryKey: ["admin-monet-config"],
-    queryFn: () => apiFetch("/api/admin/monetization/config", { token }),
+    queryFn: () => getMonetizationConfig(),
   });
 
   // Hydrate the settings form once from the server config.
@@ -237,54 +153,46 @@ export default function AdminMonetizationPage() {
 
   const statsQuery = useQuery<MonetizationStats>({
     queryKey: ["admin-monet-stats"],
-    queryFn: () => apiFetch("/api/admin/monetization/stats", { token }),
+    queryFn: () => getMonetizationStats(),
     refetchInterval: 30_000,
   });
 
   const providersQuery = useQuery<{ data: AdProvider[]; total: number; totalPages: number }>({
     queryKey: ["admin-monet-providers"],
-    queryFn: () => apiFetch("/api/admin/monetization/providers?page=1&limit=50", { token }),
+    queryFn: () => listMonetizationProviders({ page: 1, limit: 50 }),
   });
 
   const typesMetaQuery = useQuery<AdTypesMeta>({
     queryKey: ["admin-monet-types"],
-    queryFn: () => apiFetch("/api/admin/monetization/types", { token }),
+    queryFn: () => getMonetizationTypes(),
   });
 
   const providerStatsQuery = useQuery<ProviderStats>({
     queryKey: ["admin-monet-provider-stats", selectedProviderId],
-    queryFn: () => apiFetch(`/api/admin/monetization/providers/${selectedProviderId}/stats`, { token }),
+    queryFn: () => getProviderStats(selectedProviderId!),
     enabled: Boolean(selectedProviderId),
     refetchInterval: 30_000,
   });
 
   const providerTestQuery = useQuery<{ valid: boolean; errors: string[]; warnings: string[] }>({
     queryKey: ["admin-monet-provider-test", selectedProviderId],
-    queryFn: () => apiFetch(`/api/admin/monetization/providers/${selectedProviderId}/test-config`, { token }),
+    queryFn: () => testProviderConfig(selectedProviderId!),
     enabled: Boolean(selectedProviderId),
   });
 
   const snippetsQuery = useQuery<{ data: AdSnippet[]; total: number; totalPages: number }>({
     queryKey: ["admin-monet-snippets"],
-    queryFn: () => apiFetch("/api/admin/monetization/snippets?includeArchived=true&page=1&limit=50", { token }),
+    queryFn: () => listMonetizationSnippets({ page: 1, limit: 50, includeArchived: true }),
   });
 
   const gatesQuery = useQuery<{ data: Gate[]; total: number; totalPages: number }>({
     queryKey: ["admin-monet-gates", gateStatus, gatePage],
-    queryFn: () => {
-      const params = new URLSearchParams({ page: String(gatePage), limit: "30" });
-      if (gateStatus) params.set("status", gateStatus);
-      return apiFetch(`/api/admin/monetization/gates?${params}`, { token });
-    },
+    queryFn: () => listMonetizationGates({ page: gatePage, limit: 30, status: gateStatus || undefined }),
   });
 
   const eventsQuery = useQuery<{ data: GateEvent[]; total: number; totalPages: number }>({
     queryKey: ["admin-monet-events", eventType, eventPage],
-    queryFn: () => {
-      const params = new URLSearchParams({ page: String(eventPage), limit: "30" });
-      if (eventType) params.set("type", eventType);
-      return apiFetch(`/api/admin/monetization/events?${params}`, { token });
-    },
+    queryFn: () => listMonetizationEvents({ page: eventPage, limit: 30, type: eventType || undefined }),
   });
 
   // ── Mutations ────────────────────────────────────────────
@@ -310,7 +218,7 @@ export default function AdminMonetizationPage() {
         directLink: configForm.directLink,
         directLinkEnabled: configForm.directLinkEnabled,
       };
-      return apiFetch("/api/admin/monetization/config", { method: "PUT", body, token });
+      return updateMonetizationConfig(body);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-monet-config"] });
@@ -328,24 +236,20 @@ export default function AdminMonetizationPage() {
         .split(",")
         .map((s) => s.trim().toUpperCase())
         .filter(Boolean);
-      return apiFetch("/api/admin/monetization/providers", {
-        method: "POST",
-        body: {
-          name: providerForm.name,
-          type: providerForm.type,
-          description: providerForm.description,
-          enabled: providerForm.enabled,
-          priority: Number(providerForm.priority),
-          configuration,
-          placements,
-          revenueModel: providerForm.revenueModel,
-          currency: providerForm.currency,
-          cpmRate: Number(providerForm.cpmRate),
-          cpcRate: Number(providerForm.cpcRate),
-          cpaRate: Number(providerForm.cpaRate),
-          fixedPayoutPerVerification: Number(providerForm.fixedPayoutPerVerification),
-        },
-        token,
+      return createMonetizationProvider({
+        name: providerForm.name,
+        type: providerForm.type,
+        description: providerForm.description,
+        enabled: providerForm.enabled,
+        priority: Number(providerForm.priority),
+        configuration,
+        placements,
+        revenueModel: providerForm.revenueModel,
+        currency: providerForm.currency,
+        cpmRate: Number(providerForm.cpmRate),
+        cpcRate: Number(providerForm.cpcRate),
+        cpaRate: Number(providerForm.cpaRate),
+        fixedPayoutPerVerification: Number(providerForm.fixedPayoutPerVerification),
       });
     },
     onSuccess: () => {
@@ -364,24 +268,20 @@ export default function AdminMonetizationPage() {
         .split(",")
         .map((s) => s.trim().toUpperCase())
         .filter(Boolean);
-      return apiFetch(`/api/admin/monetization/providers/${editingProvider}`, {
-        method: "PUT",
-        body: {
-          name: providerForm.name,
-          type: providerForm.type,
-          description: providerForm.description,
-          enabled: providerForm.enabled,
-          priority: Number(providerForm.priority),
-          configuration,
-          placements,
-          revenueModel: providerForm.revenueModel,
-          currency: providerForm.currency,
-          cpmRate: Number(providerForm.cpmRate),
-          cpcRate: Number(providerForm.cpcRate),
-          cpaRate: Number(providerForm.cpaRate),
-          fixedPayoutPerVerification: Number(providerForm.fixedPayoutPerVerification),
-        },
-        token,
+      return updateMonetizationProvider(editingProvider!, {
+        name: providerForm.name,
+        type: providerForm.type,
+        description: providerForm.description,
+        enabled: providerForm.enabled,
+        priority: Number(providerForm.priority),
+        configuration,
+        placements,
+        revenueModel: providerForm.revenueModel,
+        currency: providerForm.currency,
+        cpmRate: Number(providerForm.cpmRate),
+        cpcRate: Number(providerForm.cpcRate),
+        cpaRate: Number(providerForm.cpaRate),
+        fixedPayoutPerVerification: Number(providerForm.fixedPayoutPerVerification),
       });
     },
     onSuccess: () => {
@@ -391,7 +291,7 @@ export default function AdminMonetizationPage() {
   });
 
   const deleteProviderMutation = useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/admin/monetization/providers/${id}`, { method: "DELETE", token }),
+    mutationFn: (id: string) => deleteMonetizationProvider(id),
     onSuccess: () => {
       invalidateAll();
       setSelectedProviderId(null);
@@ -400,25 +300,21 @@ export default function AdminMonetizationPage() {
 
   const providerStatusMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: { enabled?: boolean; archived?: boolean } }) =>
-      apiFetch(`/api/admin/monetization/providers/${id}/status`, { method: "PATCH", body: data, token }),
+      toggleProviderStatus(id, data),
     onSuccess: () => invalidateAll(),
   });
 
   const createSnippetMutation = useMutation({
     mutationFn: () =>
-      apiFetch("/api/admin/monetization/snippets", {
-        method: "POST",
-        body: {
-          name: snippetForm.name,
-          providerId: snippetForm.providerId || null,
-          type: snippetForm.type,
-          content: snippetForm.content,
-          directLink: snippetForm.directLink,
-          placement: snippetForm.placement,
-          enabled: snippetForm.enabled,
-          priority: Number(snippetForm.priority),
-        },
-        token,
+      createMonetizationSnippet({
+        name: snippetForm.name,
+        providerId: snippetForm.providerId || null,
+        type: snippetForm.type,
+        content: snippetForm.content,
+        directLink: snippetForm.directLink,
+        placement: snippetForm.placement,
+        enabled: snippetForm.enabled,
+        priority: Number(snippetForm.priority),
       }),
     onSuccess: () => {
       invalidateAll();
@@ -428,19 +324,15 @@ export default function AdminMonetizationPage() {
 
   const updateSnippetMutation = useMutation({
     mutationFn: () =>
-      apiFetch(`/api/admin/monetization/snippets/${editingSnippet}`, {
-        method: "PUT",
-        body: {
-          name: snippetForm.name,
-          providerId: snippetForm.providerId || null,
-          type: snippetForm.type,
-          content: snippetForm.content,
-          directLink: snippetForm.directLink,
-          placement: snippetForm.placement,
-          enabled: snippetForm.enabled,
-          priority: Number(snippetForm.priority),
-        },
-        token,
+      updateMonetizationSnippet(editingSnippet!, {
+        name: snippetForm.name,
+        providerId: snippetForm.providerId || null,
+        type: snippetForm.type,
+        content: snippetForm.content,
+        directLink: snippetForm.directLink,
+        placement: snippetForm.placement,
+        enabled: snippetForm.enabled,
+        priority: Number(snippetForm.priority),
       }),
     onSuccess: () => {
       invalidateAll();
@@ -450,7 +342,7 @@ export default function AdminMonetizationPage() {
 
   const snippetStatusMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: { enabled?: boolean; archived?: boolean } }) =>
-      apiFetch(`/api/admin/monetization/snippets/${id}/status`, { method: "PATCH", body: data, token }),
+      toggleSnippetStatus(id, data),
     onSuccess: () => invalidateAll(),
   });
 

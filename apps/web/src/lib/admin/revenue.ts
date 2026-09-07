@@ -183,3 +183,40 @@ export async function backfillRevenue(): Promise<{ created: number }> {
   await audit(admin.id, "REVENUE_BACKFILL", "revenue");
   return { created: 0 };
 }
+
+function csvEscape(value: unknown): string {
+  const s = String(value ?? "");
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+export async function exportRevenueCsv(params: { from?: string; to?: string; status?: string }): Promise<string> {
+  await requireAdmin();
+  let query = serverSupabase()
+    .from("RevenueLedger")
+    .select("id, type, eventType, currency, revenueAmount, payoutAmount, revenueShare, status, providerReference, notes, createdAt, Provider:providerId(name), Session:sessionId(inviteCode), User:userId(phone, name)")
+    .order("createdAt", { ascending: false })
+    .limit(1000);
+  if (params.status) query = query.eq("status", params.status);
+  if (params.from) query = query.gte("createdAt", params.from);
+  if (params.to) query = query.lte("createdAt", params.to + "T23:59:59");
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const columns = ["id", "type", "eventType", "currency", "revenueAmount", "payoutAmount", "revenueShare", "status", "providerReference", "notes", "createdAt", "provider", "session", "user"];
+  const header = columns.map(csvEscape).join(",");
+  const rows = (data ?? []).map((r: Record<string, unknown>) => {
+    const provider = r.Provider as Record<string, string> | null;
+    const session = r.Session as Record<string, string> | null;
+    const user = r.User as Record<string, string> | null;
+    return columns.map((c) => {
+      if (c === "provider") return csvEscape(provider?.name ?? "");
+      if (c === "session") return csvEscape(session?.inviteCode ?? "");
+      if (c === "user") return csvEscape(user?.phone ?? "");
+      return csvEscape(r[c]);
+    }).join(",");
+  });
+  return [header, ...rows].join("\n");
+}
