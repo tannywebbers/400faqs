@@ -468,7 +468,7 @@ export default function AdminAnalyticsPage() {
               </button>
             ))}
           </div>
-          {overviewQuery.data && tab === "overview" && (
+          {overviewQuery.data?.range && tab === "overview" && (
             <p className="text-sm text-muted-foreground xl:ml-auto">
               {formatDate(overviewQuery.data.range.start)} – {formatDate(overviewQuery.data.range.end)}
             </p>

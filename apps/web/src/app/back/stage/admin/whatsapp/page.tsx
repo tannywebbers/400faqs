@@ -63,7 +63,6 @@ function StatusIcon({ ok }: { ok: boolean }) {
 }
 
 export default function AdminWhatsAppPage() {
-  const token = getToken();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState("overview");
   const [copied, setCopied] = useState<string | null>(null);
@@ -123,15 +122,14 @@ export default function AdminWhatsAppPage() {
   });
 
   const regenerateWebhookMutation = useMutation({
-    mutationFn: () => apiFetch("/api/admin/whatsapp/webhook/regenerate", { method: "POST", token }),
+    mutationFn: () => regenerateWebhook(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-whatsapp-status"] });
     },
   });
 
   const testSendMutation = useMutation({
-    mutationFn: (data: { phone: string; message: string }) =>
-      apiFetch("/api/admin/whatsapp/test-send", { method: "POST", body: data, token }),
+    mutationFn: (data: { phone: string; message: string }) => testSendWhatsApp(data.phone, data.message),
     onSuccess: () => {
       setTestPhone("");
       setTestMessage("");
@@ -140,7 +138,7 @@ export default function AdminWhatsAppPage() {
   });
 
   const syncTemplatesMutation = useMutation<TemplateSyncResult>({
-    mutationFn: () => apiFetch("/api/admin/whatsapp/templates/sync", { method: "POST", token }),
+    mutationFn: () => syncTemplates(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-wa-templates"] });
       queryClient.invalidateQueries({ queryKey: ["admin-wa-template-stats"] });

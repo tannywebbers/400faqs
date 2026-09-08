@@ -2,27 +2,19 @@ import { NextResponse } from "next/server";
 import { serverSupabase } from "@/lib/supabase";
 
 export async function GET() {
-  const { data, error } = await serverSupabase()
-    .from("SiteAsset")
-    .select("mime, data")
-    .eq("key", "logo")
+  // The logo is now stored in Supabase Storage; the public URL is kept in the
+  // site.logo setting. Redirect there for backward compatibility.
+  const { data } = await serverSupabase()
+    .from("Setting")
+    .select("value")
+    .eq("key", "site.logo")
     .single();
 
-  if (error || !data) {
-    return new NextResponse(null, { status: 404 });
+  const url = (data as Record<string, unknown> | null)?.value as string | undefined;
+
+  if (url) {
+    return NextResponse.redirect(url, { headers: { "Cache-Control": "public, max-age=3600" } });
   }
 
-  const row = data as Record<string, unknown>;
-  const mime = (row.mime as string) ?? "image/png";
-  const base64 = row.data as string;
-
-  // The data is stored as base64 in the database (bytea → base64 via Supabase)
-  const buffer = Buffer.from(base64, "base64");
-
-  return new NextResponse(buffer, {
-    headers: {
-      "Content-Type": mime,
-      "Cache-Control": "public, max-age=3600",
-    },
-  });
+  return new NextResponse(null, { status: 404 });
 }

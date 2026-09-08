@@ -365,11 +365,14 @@ export default function LandingEditorPage() {
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4" /> Refresh
           </Button>
-          <Button variant="outline" size="sm" asChild>
-            <a href="/" target="_blank" rel="noreferrer">
-              <ExternalLink className="h-4 w-4" /> View Page
-            </a>
-          </Button>
+          <a
+            href="/"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-control border border-line bg-white px-3 text-sm font-medium text-ink transition-colors hover:bg-surface"
+          >
+            <ExternalLink className="h-4 w-4" /> View Page
+          </a>
         </div>
       </div>
 
