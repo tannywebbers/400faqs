@@ -3,8 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Wallet, Download, Plus, RotateCcw, DollarSign, Landmark, Clock, CheckCircle2, BadgeDollarSign } from "lucide-react";
-import { getToken, apiUrl } from "@/lib/api";
-import { getRevenueConfig, updateRevenueConfig, getRevenueStats, listRevenueLedger, addManualLedgerEntry, updateLedgerStatus, backfillRevenue, type RevenueConfig, type RevenueStats, type LedgerRow } from "@/lib/admin/revenue";
+import { getRevenueConfig, updateRevenueConfig, getRevenueStats, listRevenueLedger, addManualLedgerEntry, updateLedgerStatus, backfillRevenue, exportRevenueCsv, type RevenueConfig, type RevenueStats, type LedgerRow } from "@/lib/admin/revenue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,7 +25,6 @@ const STATUS_VARIANT: Record<string, "green" | "orange" | "gray" | "blue" | "red
 const STATUSES = ["", "pending", "confirmed", "paid", "rejected"];
 
 export default function AdminRevenuePage() {
-  const token = getToken();
   const queryClient = useQueryClient();
   const [config, setConfig] = useState<RevenueConfig | null>(null);
   const [from, setFrom] = useState("");
@@ -104,14 +102,8 @@ export default function AdminRevenuePage() {
   });
 
   const download = async () => {
-    const p = new URLSearchParams();
-    if (from) p.set("from", from);
-    if (to) p.set("to", to);
-    if (status) p.set("status", status);
-    const res = await fetch(apiUrl(`/api/admin/revenue/export${p.toString() ? `?${p.toString()}` : ""}`), {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    const blob = await res.blob();
+    const csv = await exportRevenueCsv({ from: from || undefined, to: to || undefined, status: status || undefined });
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

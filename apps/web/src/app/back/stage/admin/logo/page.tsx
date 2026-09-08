@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { useRef, useState } from "react";
 import { ImagePlus, Trash2, Save, Loader2 } from "lucide-react";
 import { getLogoStatus, uploadLogo, deleteLogo, type LogoStatus } from "@/lib/admin/logo";
-import { apiUrl } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -39,7 +38,7 @@ export default function AdminLogoPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const currentUrl = apiUrl("/api/logo");
+  const currentUrl = "/api/logo";
 
   return (
     <div className="space-y-6">
