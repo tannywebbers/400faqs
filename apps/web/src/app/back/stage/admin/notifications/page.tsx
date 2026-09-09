@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, CheckCheck } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { listNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead, type NotificationListResult } from "@/lib/admin/system";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,18 +11,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { formatDateTime, timeAgo } from "@/lib/utils";
-
-type AdminNotification = {
-  id: string;
-  type: string;
-  channel: string;
-  status: string;
-  title: string;
-  message: string;
-  link: string | null;
-  readAt: string | null;
-  createdAt: string;
-};
 
 const TYPE_LABELS: Record<string, string> = {
   SYSTEM_ALERT: "System",
@@ -34,29 +22,28 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export default function AdminNotificationsPage() {
-  const token = getToken();
   const qc = useQueryClient();
 
-  const query = useQuery<AdminNotification[]>({
+  const query = useQuery<NotificationListResult>({
     queryKey: ["admin-notifications"],
-    queryFn: () => apiFetch("/api/admin/notifications", { token }),
+    queryFn: () => listNotifications({ limit: 50 }),
     refetchInterval: 60_000,
   });
 
   const unread = useQuery<{ count: number }>({
     queryKey: ["admin-notifications-unread"],
-    queryFn: () => apiFetch("/api/admin/notifications/unread-count", { token }),
+    queryFn: () => getUnreadNotificationCount(),
     refetchInterval: 30_000,
   });
 
   const markRead = useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/admin/notifications/${id}/read`, { method: "POST", token }),
+    mutationFn: (id: string) => markNotificationRead(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-notifications-unread"] }),
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   const markAllRead = useMutation({
-    mutationFn: () => apiFetch("/api/admin/notifications/read-all", { method: "POST", token }),
+    mutationFn: () => markAllNotificationsRead(),
     onSuccess: () => {
       toast.success("All marked as read");
       qc.invalidateQueries({ queryKey: ["admin-notifications-unread"] });

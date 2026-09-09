@@ -29,6 +29,7 @@ import {
   Area,
 } from "recharts";
 import { apiFetch, getToken, apiUrl } from "@/lib/api";
+import { getAnalyticsOverview, getAnalytics, getAnalyticsSessions, getAdvancedQuestionStats, getAnalyticsContributions, getAdvancedAiStats, getAdvancedWhatsAppStats, getAnalyticsMonetization, getAnalyticsRevenue, getAnalyticsCategories, getAnalyticsCategoryRankings, getAnalyticsSnapshots, captureAnalyticsSnapshot } from "@/lib/admin/analytics";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -296,80 +297,80 @@ export default function AdminAnalyticsPage() {
   // ── Queries (loaded lazily per active tab) ──
   const overviewQuery = useQuery<OverviewResponse>({
     queryKey: ["admin-analytics-overview", from, to],
-    queryFn: () => apiFetch(`/api/admin/analytics/overview?${params()}`, { token }),
+    queryFn: () => getAnalyticsOverview({ from: from || undefined, to: to || undefined }) as unknown as OverviewResponse,
     enabled: tab === "overview",
     placeholderData: (prev) => prev,
   });
 
   const analyticsQuery = useQuery<AdminAnalytics>({
     queryKey: ["admin-analytics", from, to],
-    queryFn: () => apiFetch(`/api/admin/analytics?${params()}`, { token }),
+    queryFn: () => getAnalytics({ from: from || undefined, to: to || undefined }) as unknown as AdminAnalytics,
     enabled: tab === "overview",
     placeholderData: (prev) => prev,
   });
 
   const sessionsQuery = useQuery<SessionAnalyticsResponse>({
     queryKey: ["admin-analytics-sessions", from, to],
-    queryFn: () => apiFetch(`/api/admin/analytics/sessions?${params()}`, { token }),
+    queryFn: () => getAnalyticsSessions({ from: from || undefined, to: to || undefined }) as unknown as SessionAnalyticsResponse,
     enabled: tab === "sessions",
   });
 
   const questionsQuery = useQuery<QuestionAnalyticsResponse>({
     queryKey: ["admin-analytics-question-advanced"],
-    queryFn: () => apiFetch("/api/admin/analytics/questions/advanced", { token }),
+    queryFn: () => getAdvancedQuestionStats() as unknown as QuestionAnalyticsResponse,
     enabled: tab === "content",
   });
 
   const contributionsQuery = useQuery<ContributionAnalyticsResponse>({
     queryKey: ["admin-analytics-contributions", from, to],
-    queryFn: () => apiFetch(`/api/admin/analytics/contributions?${params()}`, { token }),
+    queryFn: () => getAnalyticsContributions({ from: from || undefined, to: to || undefined }) as unknown as ContributionAnalyticsResponse,
     enabled: tab === "contributions",
   });
 
   const aiQuery = useQuery<AIAnalyticsResponse>({
     queryKey: ["admin-analytics-ai-advanced", from, to],
-    queryFn: () => apiFetch(`/api/admin/analytics/ai/advanced?${params()}`, { token }),
+    queryFn: () => getAdvancedAiStats({ from: from || undefined, to: to || undefined }) as unknown as AIAnalyticsResponse,
     enabled: tab === "ai",
   });
 
   const whatsappQuery = useQuery<WhatsAppAdvancedResponse>({
     queryKey: ["admin-analytics-whatsapp-advanced", from, to],
-    queryFn: () => apiFetch(`/api/admin/analytics/whatsapp/advanced?${params()}`, { token }),
+    queryFn: () => getAdvancedWhatsAppStats({ from: from || undefined, to: to || undefined }) as unknown as WhatsAppAdvancedResponse,
     enabled: tab === "whatsapp",
   });
 
   const monetizationQuery = useQuery<MonetizationAnalyticsResponse>({
     queryKey: ["admin-analytics-monetization", from, to],
-    queryFn: () => apiFetch(`/api/admin/analytics/monetization?${params()}`, { token }),
+    queryFn: () => getAnalyticsMonetization({ from: from || undefined, to: to || undefined }) as unknown as MonetizationAnalyticsResponse,
     enabled: tab === "monetization",
   });
 
   const revenueQuery = useQuery<RevenueAnalyticsResponse>({
     queryKey: ["admin-analytics-revenue", from, to],
-    queryFn: () => apiFetch(`/api/admin/analytics/revenue?${params()}`, { token }),
+    queryFn: () => getAnalyticsRevenue({ from: from || undefined, to: to || undefined }) as unknown as RevenueAnalyticsResponse,
     enabled: tab === "revenue",
   });
 
   const categoriesQuery = useQuery<CategoryStat[]>({
     queryKey: ["admin-analytics-categories"],
-    queryFn: () => apiFetch("/api/admin/analytics/categories", { token }),
+    queryFn: () => getAnalyticsCategories() as unknown as CategoryStat[],
     enabled: tab === "categories" || tab === "overview",
   });
 
   const rankingsQuery = useQuery<CategoryRanking[]>({
     queryKey: ["admin-analytics-rankings"],
-    queryFn: () => apiFetch("/api/admin/analytics/categories/rankings", { token }),
+    queryFn: () => getAnalyticsCategoryRankings() as unknown as CategoryRanking[],
     enabled: tab === "categories",
   });
 
   const snapshotsQuery = useQuery<SnapshotRow[]>({
     queryKey: ["admin-analytics-snapshots"],
-    queryFn: () => apiFetch("/api/admin/analytics/snapshots?days=120", { token }),
+    queryFn: () => getAnalyticsSnapshots(120) as unknown as SnapshotRow[],
     enabled: tab === "overview",
   });
 
   const captureSnapshotMutation = useMutation({
-    mutationFn: () => apiFetch("/api/admin/analytics/snapshots/capture", { method: "POST", token }),
+    mutationFn: () => captureAnalyticsSnapshot(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-analytics-snapshots"] });
     },
@@ -467,7 +468,7 @@ export default function AdminAnalyticsPage() {
               </button>
             ))}
           </div>
-          {overviewQuery.data && tab === "overview" && (
+          {overviewQuery.data?.range && tab === "overview" && (
             <p className="text-sm text-muted-foreground xl:ml-auto">
               {formatDate(overviewQuery.data.range.start)} – {formatDate(overviewQuery.data.range.end)}
             </p>

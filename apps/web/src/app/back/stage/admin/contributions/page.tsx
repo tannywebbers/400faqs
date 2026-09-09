@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
 import { Trash2, CheckCircle2, XCircle, ScanSearch } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { listContributions, reviewContribution, deleteContribution, type Contribution } from "@/lib/admin/review";
 import { useAdminList } from "@/hooks/use-admin-list";
 import { AdminToolbar } from "@/components/admin/table-toolbar";
 import { Button } from "@/components/ui/button";
@@ -33,29 +33,12 @@ type DuplicateInfo = {
   reviewRequired: boolean;
   reviewReason: string | null;
   model: string | null;
-  checkedAt: string;
   matches: SimilarityMatch[];
 };
 
 type AiResult = {
   moderation?: { score: number; reason: string | null; flagged?: boolean; ok?: boolean };
   duplicate?: DuplicateInfo;
-};
-
-type Contribution = {
-  id: string;
-  ticket: string;
-  question: string;
-  userPhone: string | null;
-  type: "TRUTH" | "DARE" | "NORMAL";
-  status: "PENDING" | "APPROVED" | "REJECTED" | "FLAGGED";
-  aiScore: number | null;
-  aiResult: AiResult | null;
-  category: { name: string; slug: string };
-  duplicateOf: { text: string } | null;
-  rejectionReason: string | null;
-  reviewedAt: string | null;
-  createdAt: string;
 };
 
 const STATUS_BADGE: Record<Contribution["status"], "orange" | "green" | "red" | "purple"> = {
@@ -65,8 +48,12 @@ const STATUS_BADGE: Record<Contribution["status"], "orange" | "green" | "red" | 
   FLAGGED: "purple",
 };
 
+function getAi(c: Contribution): AiResult | null {
+  return c.aiResult as unknown as AiResult | null;
+}
+
 function aiVariant(c: Contribution): "red" | "orange" | "green" | "gray" {
-  const cls = c.aiResult?.duplicate?.classification;
+  const cls = getAi(c)?.duplicate?.classification;
   if (!cls) return "gray";
   if (cls === "EXACT_DUPLICATE") return "red";
   if (cls === "VERY_SIMILAR") return "orange";
@@ -74,42 +61,37 @@ function aiVariant(c: Contribution): "red" | "orange" | "green" | "gray" {
 }
 
 function aiLabel(c: Contribution): string {
-  const d = c.aiResult?.duplicate;
+  const d = getAi(c)?.duplicate;
   if (!d) return "Unchecked";
   if (d.reviewRequired) return `${d.classification} · review`;
   return d.classification;
 }
 
 export default function AdminContributionsPage() {
-  const token = getToken();
   const qc = useQueryClient();
   const [reviewing, setReviewing] = useState<Contribution | null>(null);
   const [inspecting, setInspecting] = useState<Contribution | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
-  const list = useAdminList<Contribution>({ path: "/api/admin/contributions" });
+  const list = useAdminList<Contribution>({ queryKey: "admin-contributions", queryFn: (p) => listContributions(p), limit: 20 });
 
   const review = useMutation({
-    mutationFn: ({ approved }: { approved: boolean }) =>
-      apiFetch(`/api/admin/contributions/${reviewing?.id}/review`, {
-        method: "PATCH",
-        token,
-        body: approved ? { status: "APPROVED" } : { status: "REJECTED", rejectionReason },
-      }),
+    mutationFn: ({ id, approved }: { id: string; approved: boolean }) =>
+      approved ? reviewContribution(id, "APPROVED") : reviewContribution(id, "REJECTED", rejectionReason),
     onSuccess: () => {
       toast.success("Review saved");
       setReviewing(null);
       setRejectionReason("");
-      qc.invalidateQueries({ queryKey: ["/api/admin/contributions"] });
+      qc.invalidateQueries({ queryKey: ["admin-contributions"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Review failed"),
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/admin/contributions/${id}`, { method: "DELETE", token }),
+    mutationFn: (id: string) => deleteContribution(id),
     onSuccess: () => {
       toast.success("Contribution deleted");
-      qc.invalidateQueries({ queryKey: ["/api/admin/contributions"] });
+      qc.invalidateQueries({ queryKey: ["admin-contributions"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
   });
@@ -205,7 +187,7 @@ export default function AdminContributionsPage() {
                         <ScanSearch className="h-4 w-4" />
                       </Button>
                       {c.status !== "APPROVED" && (
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" title="Approve" onClick={() => review.mutate({ approved: true })}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" title="Approve" onClick={() => review.mutate({ id: c.id, approved: true })}>
                           <CheckCircle2 className="h-4 w-4" />
                         </Button>
                       )}
@@ -246,7 +228,7 @@ export default function AdminContributionsPage() {
           <DialogHeader>
             <DialogTitle>Inspect contribution</DialogTitle>
           </DialogHeader>
-          {inspecting && (
+          {inspecting && (() => { const ai = getAi(inspecting); return (
             <div className="space-y-5">
               <div className="rounded-xl bg-surface p-4">
                 <p className="font-medium">"{inspecting.question}"</p>
@@ -265,12 +247,12 @@ export default function AdminContributionsPage() {
 
               <div>
                 <h3 className="text-sm font-semibold">Content moderation</h3>
-                {inspecting.aiResult?.moderation ? (
+                {ai?.moderation ? (
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                    <Stat label="Score" value={`${Math.round(inspecting.aiResult.moderation.score * 100)}%`} />
-                    <Stat label="Ok" value={inspecting.aiResult.moderation.ok ? "Yes" : "No"} />
-                    <Stat label="Flagged" value={inspecting.aiResult.moderation.flagged ? "Yes" : "No"} />
-                    <Stat label="Reason" value={inspecting.aiResult.moderation.reason ?? "—"} />
+                    <Stat label="Score" value={`${Math.round(ai.moderation.score * 100)}%`} />
+                    <Stat label="Ok" value={ai.moderation.ok ? "Yes" : "No"} />
+                    <Stat label="Flagged" value={ai.moderation.flagged ? "Yes" : "No"} />
+                    <Stat label="Reason" value={ai.moderation.reason ?? "—"} />
                   </div>
                 ) : (
                   <p className="mt-2 text-xs text-muted-foreground">No moderation record.</p>
@@ -279,8 +261,8 @@ export default function AdminContributionsPage() {
 
               <div>
                 <h3 className="text-sm font-semibold">AI duplicate detection</h3>
-                {inspecting.aiResult?.duplicate ? (() => {
-                  const d = inspecting.aiResult!.duplicate!;
+                {ai?.duplicate ? (() => {
+                  const d = ai.duplicate!;
                   return (
                     <div className="mt-2 space-y-3">
                       <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
@@ -322,7 +304,7 @@ export default function AdminContributionsPage() {
 
               <div className="flex flex-wrap justify-end gap-2">
                 {inspecting.status !== "APPROVED" && (
-                  <Button onClick={() => { setInspecting(null); review.mutate({ approved: true }); }}>
+                  <Button onClick={() => { const id = inspecting.id; setInspecting(null); review.mutate({ id, approved: true }); }}>
                     <CheckCircle2 className="h-4 w-4" /> Approve
                   </Button>
                 )}
@@ -336,7 +318,7 @@ export default function AdminContributionsPage() {
                 </Button>
               </div>
             </div>
-          )}
+          ); })()}
         </DialogContent>
       </Dialog>
 
@@ -369,7 +351,7 @@ export default function AdminContributionsPage() {
               variant="destructive"
               loading={review.isPending}
               disabled={!reviewing}
-              onClick={() => review.mutate({ approved: false })}
+              onClick={() => reviewing && review.mutate({ id: reviewing.id, approved: false })}
             >
               Reject Contribution
             </Button>

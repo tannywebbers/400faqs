@@ -4,29 +4,22 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useRef, useState } from "react";
 import { ImagePlus, Trash2, Save, Loader2 } from "lucide-react";
-import { apiFetch, getToken, apiUrl } from "@/lib/api";
+import { getLogoStatus, uploadLogo, deleteLogo, type LogoStatus } from "@/lib/admin/logo";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-type LogoStatus = { hasLogo: boolean; mime?: string; size?: number; updatedAt?: string };
-
 export default function AdminLogoPage() {
-  const token = getToken();
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
 
   const status = useQuery<LogoStatus>({
     queryKey: ["admin-logo-status"],
-    queryFn: () => apiFetch("/api/admin/logo/status", { token }),
+    queryFn: () => getLogoStatus(),
   });
 
   const upload = useMutation({
-    mutationFn: (file: File) => {
-      const fd = new FormData();
-      fd.append("file", file);
-      return apiFetch<LogoStatus>("/api/admin/logo", { method: "POST", formData: fd, token });
-    },
+    mutationFn: (file: File) => uploadLogo(file),
     onSuccess: () => {
       toast.success("Logo uploaded");
       status.refetch();
@@ -36,7 +29,7 @@ export default function AdminLogoPage() {
   });
 
   const remove = useMutation({
-    mutationFn: () => apiFetch<LogoStatus>("/api/admin/logo", { method: "DELETE", token }),
+    mutationFn: () => deleteLogo(),
     onSuccess: () => {
       toast.success("Logo removed");
       status.refetch();
@@ -45,7 +38,7 @@ export default function AdminLogoPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const currentUrl = apiUrl("/api/logo");
+  const currentUrl = "/api/logo";
 
   return (
     <div className="space-y-6">

@@ -6,7 +6,8 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { apiFetch, setToken, setAdminUser } from "@/lib/api";
+import { setAdminUser } from "@/lib/api";
+import { loginAdmin } from "@/lib/admin/session";
 import { Container } from "@/components/layout/container";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,8 +21,6 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-type LoginResponse = { token: string; admin: { id: string; name: string; email: string; role: string } };
-
 export default function AdminLoginPage() {
   const router = useRouter();
   const {
@@ -32,10 +31,9 @@ export default function AdminLoginPage() {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      const data = await apiFetch<LoginResponse>("/api/admin/auth/login", { method: "POST", body: values });
-      setToken(data.token);
-      setAdminUser(data.admin);
-      toast.success(`Welcome, ${data.admin.name}`);
+      const admin = await loginAdmin(values.email, values.password);
+      setAdminUser(admin);
+      toast.success(`Welcome, ${admin.name}`);
       router.replace("/back/stage/admin");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Login failed");

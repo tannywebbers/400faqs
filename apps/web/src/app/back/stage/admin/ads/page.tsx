@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { Plus, Pencil, Trash2, RefreshCw, Building2, LayoutGrid, TrendingUp, BookOpen } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { getAdTypes, listAdProviders, createAdProvider, updateAdProvider, toggleAdProviderStatus, deleteAdProvider, listAdPlacements, createAdPlacement, updateAdPlacement, toggleAdPlacementStatus, deleteAdPlacement, getAdPerformance, type AdProvider, type AdPlacement, type TypesMeta, type PerformanceReport } from "@/lib/admin/ads";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -21,69 +21,6 @@ import { EmptyState } from "@/components/empty-state";
 import { toast } from "sonner";
 
 // ---- Types -----------------------------------------------------------
-
-type AdProvider = {
-  id: string;
-  name: string;
-  type: string;
-  description: string | null;
-  enabled: boolean;
-  archived: boolean;
-  priority: number;
-  configuration: unknown;
-  revenueModel: string;
-  currency: string;
-  cpmRate: number;
-  cpcRate: number;
-  cpaRate: number;
-  fixedPayoutPerVerification: number;
-  createdAt: string;
-};
-
-type AdPlacement = {
-  id: string;
-  key: string;
-  name: string | null;
-  description: string | null;
-  providerId: string | null;
-  provider: { id: string; name: string; type: string; enabled: boolean; archived: boolean } | null;
-  providerPlacementId: string | null;
-  format: string | null;
-  enabled: boolean;
-  priority: number;
-  createdAt: string;
-};
-
-type TypesMeta = { providerTypes: string[]; placements: string[]; eventTypes: string[] };
-
-type PerformanceRow = {
-  placement: string;
-  name: string | null;
-  enabled: boolean;
-  provider: { id: string; name: string; type: string } | null;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  verifications: number;
-  revenue: { estimated: number; confirmed: number };
-};
-
-type PerformanceReport = {
-  summary: { impressions: number; clicks: number; conversions: number; verifications: number; estimated: number; confirmed: number };
-  placements: PerformanceRow[];
-  providers: {
-    providerId: string;
-    name: string;
-    type: string;
-    enabled: boolean;
-    impressions: number;
-    clicks: number;
-    conversions: number;
-    verifications: number;
-    ctr: number;
-    revenue: { estimated: number; confirmed: number };
-  }[];
-};
 
 // ---- Hardcoded provider catalog (for reference/docs only) -------------
 
@@ -192,24 +129,23 @@ function providerToForm(p: AdProvider): Record<string, unknown> {
 
 export default function AdsAdminPage() {
   const qc = useQueryClient();
-  const token = getToken();
   const [tab, setTab] = useState("providers");
 
-  const { data: meta } = useQuery({ queryKey: ["ads-types"], queryFn: () => apiFetch<TypesMeta>("/api/admin/ads/types", { token }) });
+  const { data: meta } = useQuery({ queryKey: ["ads-types"], queryFn: () => getAdTypes() });
 
   const { data: providers, isLoading: providersLoading, refetch: refreshProviders } = useQuery({
     queryKey: ["ads-providers"],
-    queryFn: () => apiFetch<AdProvider[]>("/api/admin/ads/providers?limit=1000", { token }),
+    queryFn: () => listAdProviders({ limit: 1000 }),
   });
 
   const { data: placements, isLoading: placementsLoading, refetch: refreshPlacements } = useQuery({
     queryKey: ["ads-placements"],
-    queryFn: () => apiFetch<AdPlacement[]>("/api/admin/ads/placements?limit=1000", { token }),
+    queryFn: () => listAdPlacements({ limit: 1000 }),
   });
 
   const { data: report, isLoading: reportLoading, refetch: refreshReport } = useQuery({
     queryKey: ["ads-performance"],
-    queryFn: () => apiFetch<PerformanceReport>("/api/admin/ads/performance", { token }),
+    queryFn: () => getAdPerformance(),
   });
 
   const invalidate = async () => {
@@ -223,9 +159,9 @@ export default function AdsAdminPage() {
   const saveProvider = useMutation({
     mutationFn: async (vals: Record<string, unknown>) => {
       if (providerModal.editing) {
-        return apiFetch(`/api/admin/ads/providers/${providerModal.editing.id}`, { method: "PUT", body: vals, token });
+        return updateAdProvider(providerModal.editing.id, vals);
       }
-      return apiFetch("/api/admin/ads/providers", { method: "POST", body: vals, token });
+      return createAdProvider(vals);
     },
     onSuccess: async () => {
       toast.success(providerModal.editing ? "Provider updated" : "Provider created");
@@ -236,7 +172,7 @@ export default function AdsAdminPage() {
   });
 
   const toggleProvider = useMutation({
-    mutationFn: (p: AdProvider) => apiFetch(`/api/admin/ads/providers/${p.id}/status`, { method: "PATCH", body: { enabled: !p.enabled }, token }),
+    mutationFn: (p: AdProvider) => toggleAdProviderStatus(p.id, !p.enabled),
     onSuccess: async () => {
       toast.success("Provider status updated");
       await invalidate();
@@ -245,7 +181,7 @@ export default function AdsAdminPage() {
   });
 
   const deleteProvider = useMutation({
-    mutationFn: (p: AdProvider) => apiFetch(`/api/admin/ads/providers/${p.id}`, { method: "DELETE", token }),
+    mutationFn: (p: AdProvider) => deleteAdProvider(p.id),
     onSuccess: async () => {
       toast.success("Provider deleted (or archived if it has history)");
       await invalidate();
@@ -260,9 +196,9 @@ export default function AdsAdminPage() {
   const savePlacement = useMutation({
     mutationFn: async (vals: Record<string, unknown>) => {
       if (placementModal.editing) {
-        return apiFetch(`/api/admin/ads/placements/${placementModal.editing.id}`, { method: "PUT", body: vals, token });
+        return updateAdPlacement(placementModal.editing.id, vals);
       }
-      return apiFetch("/api/admin/ads/placements", { method: "POST", body: vals, token });
+      return createAdPlacement(vals);
     },
     onSuccess: async () => {
       toast.success(placementModal.editing ? "Placement updated" : "Placement created");
@@ -273,7 +209,7 @@ export default function AdsAdminPage() {
   });
 
   const togglePlacement = useMutation({
-    mutationFn: (p: AdPlacement) => apiFetch(`/api/admin/ads/placements/${p.id}`, { method: "PUT", body: { enabled: !p.enabled }, token }),
+    mutationFn: (p: AdPlacement) => toggleAdPlacementStatus(p.id, !p.enabled),
     onSuccess: async () => {
       toast.success("Placement status updated");
       await invalidate();
@@ -282,7 +218,7 @@ export default function AdsAdminPage() {
   });
 
   const deletePlacement = useMutation({
-    mutationFn: (p: AdPlacement) => apiFetch(`/api/admin/ads/placements/${p.id}`, { method: "DELETE", token }),
+    mutationFn: (p: AdPlacement) => deleteAdPlacement(p.id),
     onSuccess: async () => {
       toast.success("Placement deleted (or disabled if it has history)");
       await invalidate();

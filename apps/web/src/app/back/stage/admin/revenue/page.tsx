@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Wallet, Download, Plus, RotateCcw, DollarSign, Landmark, Clock, CheckCircle2, BadgeDollarSign } from "lucide-react";
-import { apiFetch, getToken, apiUrl } from "@/lib/api";
+import { getRevenueConfig, updateRevenueConfig, getRevenueStats, listRevenueLedger, addManualLedgerEntry, updateLedgerStatus, backfillRevenue, exportRevenueCsv, type RevenueConfig, type RevenueStats, type LedgerRow } from "@/lib/admin/revenue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,47 +15,6 @@ import { EmptyState } from "@/components/empty-state";
 import { StatCard } from "@/components/stat-card";
 import { formatDateTime, formatNumber } from "@/lib/utils";
 
-type RevenueConfig = {
-  revenuePerVerification: number;
-  payoutRate: number;
-  currency: string;
-};
-
-type RevenueStats = {
-  rows: number;
-  revenueTotal: number;
-  payoutTotal: number;
-  pendingRows: number;
-  pendingRevenue: number;
-  confirmedRows: number;
-  confirmedRevenue: number;
-  paidRows: number;
-  paidRevenue: number;
-  autoRows: number;
-  manualRows: number;
-  currency: string;
-  averageRevenue: number;
-};
-
-type LedgerRow = {
-  id: string;
-  type: string;
-  providerId: string | null;
-  sessionId: string | null;
-  userId: string | null;
-  currency: string;
-  revenueAmount: number;
-  payoutAmount: number;
-  revenueShare: number;
-  status: string;
-  providerReference: string | null;
-  notes: string | null;
-  createdAt: string;
-  provider?: { id: string; name: string } | null;
-  session?: { id: string; inviteCode: string } | null;
-  user?: { id: string; phone: string; name: string | null } | null;
-};
-
 const STATUS_VARIANT: Record<string, "green" | "orange" | "gray" | "blue" | "red"> = {
   pending: "orange",
   confirmed: "blue",
@@ -66,7 +25,6 @@ const STATUS_VARIANT: Record<string, "green" | "orange" | "gray" | "blue" | "red
 const STATUSES = ["", "pending", "confirmed", "paid", "rejected"];
 
 export default function AdminRevenuePage() {
-  const token = getToken();
   const queryClient = useQueryClient();
   const [config, setConfig] = useState<RevenueConfig | null>(null);
   const [from, setFrom] = useState("");
@@ -76,17 +34,9 @@ export default function AdminRevenuePage() {
   const [entry, setEntry] = useState({ revenueAmount: "0", payoutAmount: "0", currency: "", providerReference: "", notes: "", status: "pending" });
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
-  const params = () => {
-    const p = new URLSearchParams({ page: String(page), limit: "30" });
-    if (from) p.set("from", from);
-    if (to) p.set("to", to);
-    if (status) p.set("status", status);
-    return p.toString();
-  };
-
   const configQuery = useQuery<RevenueConfig>({
     queryKey: ["admin-revenue-config"],
-    queryFn: () => apiFetch("/api/admin/revenue/config", { token }),
+    queryFn: () => getRevenueConfig(),
   });
 
   const cfg = configQuery.data;
@@ -96,22 +46,16 @@ export default function AdminRevenuePage() {
 
   const statsQuery = useQuery<RevenueStats>({
     queryKey: ["admin-revenue-stats", from, to],
-    queryFn: () => {
-      const p = new URLSearchParams();
-      if (from) p.set("from", from);
-      if (to) p.set("to", to);
-      const qs = p.toString();
-      return apiFetch(`/api/admin/revenue/stats${qs ? `?${qs}` : ""}`, { token });
-    },
+    queryFn: () => getRevenueStats({ from: from || undefined, to: to || undefined }),
   });
 
   const ledgerQuery = useQuery<{ data: LedgerRow[]; total: number; totalPages: number }>({
     queryKey: ["admin-revenue-ledger", from, to, status, page],
-    queryFn: () => apiFetch(`/api/admin/revenue?${params()}`, { token }),
+    queryFn: () => listRevenueLedger({ page, limit: 30, status: status || undefined, from: from || undefined, to: to || undefined }),
   });
 
   const saveConfigMutation = useMutation({
-    mutationFn: (body: RevenueConfig) => apiFetch("/api/admin/revenue/config", { method: "PUT", body, token }),
+    mutationFn: (body: RevenueConfig) => updateRevenueConfig(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-revenue-config"] });
       setMessage({ kind: "ok", text: "Settings saved" });
@@ -121,17 +65,13 @@ export default function AdminRevenuePage() {
 
   const addEntryMutation = useMutation({
     mutationFn: () =>
-      apiFetch("/api/admin/revenue/manual", {
-        method: "POST",
-        body: {
-          revenueAmount: Number(entry.revenueAmount) || 0,
-          payoutAmount: entry.payoutAmount ? Number(entry.payoutAmount) || 0 : undefined,
-          currency: entry.currency || undefined,
-          providerReference: entry.providerReference || undefined,
-          notes: entry.notes || undefined,
-          status: entry.status,
-        },
-        token,
+      addManualLedgerEntry({
+        revenueAmount: Number(entry.revenueAmount) || 0,
+        payoutAmount: entry.payoutAmount ? Number(entry.payoutAmount) || 0 : undefined,
+        currency: entry.currency || undefined,
+        providerReference: entry.providerReference || undefined,
+        notes: entry.notes || undefined,
+        status: entry.status,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-revenue-ledger"] });
@@ -143,7 +83,7 @@ export default function AdminRevenuePage() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => apiFetch(`/api/admin/revenue/${id}/status`, { method: "POST", body: { status }, token }),
+    mutationFn: ({ id, status }: { id: string; status: string }) => updateLedgerStatus(id, status),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-revenue-ledger"] });
       queryClient.invalidateQueries({ queryKey: ["admin-revenue-stats"] });
@@ -152,7 +92,7 @@ export default function AdminRevenuePage() {
   });
 
   const backfillMutation = useMutation({
-    mutationFn: () => apiFetch("/api/admin/revenue/backfill", { method: "POST", token }),
+    mutationFn: () => backfillRevenue(),
     onSuccess: (d) => {
       queryClient.invalidateQueries({ queryKey: ["admin-revenue-ledger"] });
       queryClient.invalidateQueries({ queryKey: ["admin-revenue-stats"] });
@@ -162,14 +102,8 @@ export default function AdminRevenuePage() {
   });
 
   const download = async () => {
-    const p = new URLSearchParams();
-    if (from) p.set("from", from);
-    if (to) p.set("to", to);
-    if (status) p.set("status", status);
-    const res = await fetch(apiUrl(`/api/admin/revenue/export${p.toString() ? `?${p.toString()}` : ""}`), {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    const blob = await res.blob();
+    const csv = await exportRevenueCsv({ from: from || undefined, to: to || undefined, status: status || undefined });
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { Search, BookOpen, LifeBuoy } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { fetchHelpArticles, fetchHelpArticleCategories, type HelpArticleListItem } from "@/lib/queries/public-client";
 import { Container } from "@/components/layout/container";
 import { PageHeader } from "@/components/page-header";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ import { Pagination } from "@/components/pagination";
 import { useDebounce } from "@/hooks/use-debounce";
 import { cn } from "@/lib/utils";
 
-type Article = { id: string; title: string; slug: string; excerpt: string; category: string; updatedAt: string };
+type Article = HelpArticleListItem;
 
 export default function HelpPage() {
   const [q, setQ] = useState("");
@@ -27,15 +27,13 @@ export default function HelpPage() {
   const articlesQuery = useQuery({
     queryKey: ["help-articles", debounced, category, page],
     queryFn: () =>
-      apiFetch<Article[]>(
-        `/api/public/help-articles?page=${page}&limit=12&q=${encodeURIComponent(debounced)}${category !== "all" ? `&category=${encodeURIComponent(category)}` : ""}`
-      ),
+      fetchHelpArticles({ page, limit: 12, q: debounced, category }),
     placeholderData: (prev) => prev,
   });
 
   const categoriesQuery = useQuery({
     queryKey: ["help-categories"],
-    queryFn: () => apiFetch<string[]>("/api/public/help-articles/categories"),
+    queryFn: () => fetchHelpArticleCategories(),
   });
 
   const data = articlesQuery.data as (Article[] & { page?: number; limit?: number; total?: number; totalPages?: number }) | undefined;

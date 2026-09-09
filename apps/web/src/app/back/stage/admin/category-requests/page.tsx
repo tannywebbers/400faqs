@@ -1,10 +1,10 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState } from "react";
 import { FolderPlus, CheckCircle2, XCircle } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { listCategoryRequests, reviewCategoryRequest, type CategoryRequest } from "@/lib/admin/review";
 import { useAdminList } from "@/hooks/use-admin-list";
 import { AdminToolbar } from "@/components/admin/table-toolbar";
 import { Button } from "@/components/ui/button";
@@ -12,56 +12,36 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/pagination";
 import { formatDate, maskPhone } from "@/lib/utils";
 
-type Request = {
-  id: string;
-  name: string;
-  description: string;
-  status: "PENDING" | "APPROVED" | "REJECTED";
-  phone: string;
-  createdAt: string;
-};
-
-const STATUS_BADGE: Record<Request["status"], "orange" | "green" | "red"> = {
+const STATUS_BADGE: Record<CategoryRequest["status"], "orange" | "green" | "red"> = {
   PENDING: "orange",
   APPROVED: "green",
   REJECTED: "red",
 };
 
 export default function AdminCategoryRequestsPage() {
-  const token = getToken();
   const qc = useQueryClient();
-  const [reviewing, setReviewing] = useState<Request | null>(null);
+  const [reviewing, setReviewing] = useState<CategoryRequest | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
-  const list = useAdminList<Request>({ path: "/api/admin/category-requests" });
+  const list = useAdminList<CategoryRequest>({ queryKey: "admin-category-requests", queryFn: (p) => listCategoryRequests(p), limit: 20 });
 
   const review = useMutation({
-    mutationFn: ({ approved }: { approved: boolean }) =>
-      apiFetch(`/api/admin/category-requests/${reviewing?.id}/review`, {
-        method: "PATCH",
-        token,
-        body: approved ? { status: "APPROVED" } : { status: "REJECTED", rejectionReason },
-      }),
+    mutationFn: ({ id, approved }: { id: string; approved: boolean }) =>
+      approved ? reviewCategoryRequest(id, "APPROVED") : reviewCategoryRequest(id, "REJECTED", rejectionReason),
     onSuccess: () => {
       toast.success("Request reviewed");
       setReviewing(null);
       setRejectionReason("");
-      qc.invalidateQueries({ queryKey: ["/api/admin/category-requests"] });
+      qc.invalidateQueries({ queryKey: ["admin-category-requests"] });
       qc.invalidateQueries({ queryKey: ["admin-categories"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Review failed"),
-  });
-
-  const categories = useQuery<{ id: string; name: string }[]>({
-    queryKey: ["admin-categories-simple"],
-    queryFn: () => apiFetch("/api/admin/categories?limit=200", { token }),
   });
 
   const data = list.data;
@@ -118,7 +98,7 @@ export default function AdminCategoryRequestsPage() {
                     <p className="line-clamp-2 text-sm text-muted-foreground">{r.description}</p>
                   </TableCell>
                   <TableCell>
-                    <span className="font-mono text-xs">{maskPhone(r.phone)}</span>
+                    <span className="font-mono text-xs">{maskPhone(r.requestorPhone)}</span>
                   </TableCell>
                   <TableCell>
                     <Badge variant={STATUS_BADGE[r.status]}>{r.status}</Badge>
@@ -128,7 +108,7 @@ export default function AdminCategoryRequestsPage() {
                     <div className="flex justify-end gap-1">
                       {r.status === "PENDING" && (
                         <>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" title="Approve" onClick={() => review.mutate({ approved: true })}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" title="Approve" onClick={() => review.mutate({ id: r.id, approved: true })}>
                             <CheckCircle2 className="h-4 w-4" />
                           </Button>
                           <Button
@@ -172,7 +152,7 @@ export default function AdminCategoryRequestsPage() {
             <Button variant="outline" onClick={() => setReviewing(null)}>
               Cancel
             </Button>
-            <Button variant="destructive" loading={review.isPending} onClick={() => review.mutate({ approved: false })}>
+            <Button variant="destructive" loading={review.isPending} onClick={() => reviewing && review.mutate({ id: reviewing.id, approved: false })}>
               Reject
             </Button>
           </DialogFooter>

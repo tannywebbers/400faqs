@@ -7,7 +7,7 @@ import { z } from "zod";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Upload, ShieldAlert } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { fetchCategorySlugs, submitReport } from "@/lib/queries/public-client";
 import { Container } from "@/components/layout/container";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,7 +37,7 @@ export default function ReportPage() {
 
   const { data: categories } = useQuery({
     queryKey: ["public-categories", "", "alphabetical", 1],
-    queryFn: () => apiFetch<{ slug: string; name: string }[]>("/api/public/categories?limit=100&sort=alphabetical"),
+    queryFn: () => fetchCategorySlugs(),
   });
 
   const {
@@ -49,15 +49,13 @@ export default function ReportPage() {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      const form = new FormData();
-      form.append("reporterPhone", values.reporterPhone);
-      form.append("categorySlug", values.categorySlug);
-      form.append("reason", values.reason);
-      if (values.notes) form.append("notes", values.notes);
-      if (values.questionText) form.append("questionText", values.questionText);
-      if (file) form.append("screenshot", file);
-
-      const data = await apiFetch<ReportResult>("/api/public/reports", { method: "POST", formData: form });
+      const data = await submitReport({
+        reporterPhone: values.reporterPhone,
+        categorySlug: values.categorySlug,
+        reason: values.reason,
+        notes: values.notes,
+        questionText: values.questionText,
+      });
       setResult(data);
       toast.success(`Report submitted. Ticket ${data.ticket}`);
     } catch (err) {

@@ -7,7 +7,8 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { useState } from "react";
 import { Plus, Pencil, Trash2, ExternalLink } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { listArticles, createArticle, updateArticle, deleteArticle, type Article } from "@/lib/admin/content";
+import type { PaginatedResult } from "@/lib/admin/shared";
 import { AdminToolbar } from "@/components/admin/table-toolbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,53 +21,50 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { useDebounce } from "@/hooks/use-debounce";
 
-type Article = { id: string; title: string; slug: string; excerpt: string; category: string; isPublished: boolean; updatedAt: string };
-
 const schema = z.object({
   title: z.string().min(5).max(200),
   slug: z.string().min(2).max(200).regex(/^[a-z0-9-]+$/, "Lowercase letters, numbers and dashes only"),
   excerpt: z.string().min(10).max(300),
   category: z.string().min(2).max(100),
   content: z.string().min(50),
-  isPublished: z.boolean(),
+  status: z.boolean(),
 });
 
 type FormValues = z.infer<typeof schema>;
 
 export default function AdminArticlesPage() {
-  const token = getToken();
   const qc = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Article | null>(null);
   const [q, setQ] = useState("");
   const debounced = useDebounce(q, 400);
 
-  const query = useQuery<Article[]>({
+  const query = useQuery<PaginatedResult<Article>>({
     queryKey: ["admin-articles", debounced],
-    queryFn: () => apiFetch(`/api/admin/articles${debounced ? `?q=${encodeURIComponent(debounced)}` : ""}`, { token }),
+    queryFn: () => listArticles({ q: debounced }),
   });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { title: "", slug: "", excerpt: "", category: "Getting Started", content: "", isPublished: true },
+    defaultValues: { title: "", slug: "", excerpt: "", category: "Getting Started", content: "", status: true },
   });
 
   const openCreate = () => {
     setEditing(null);
-    form.reset({ title: "", slug: "", excerpt: "", category: "Getting Started", content: "", isPublished: true });
+    form.reset({ title: "", slug: "", excerpt: "", category: "Getting Started", content: "", status: true });
     setDialogOpen(true);
   };
 
   const openEdit = (a: Article) => {
     setEditing(a);
-    form.reset({ title: a.title, slug: a.slug, excerpt: a.excerpt, category: a.category, content: "", isPublished: a.isPublished });
+    form.reset({ title: a.title, slug: a.slug, excerpt: a.excerpt, category: a.category, content: "", status: a.status });
   };
 
   const save = useMutation({
     mutationFn: (values: FormValues) =>
       editing
-        ? apiFetch(`/api/admin/articles/${editing.id}`, { method: "PUT", token, body: values })
-        : apiFetch("/api/admin/articles", { method: "POST", token, body: values }),
+        ? updateArticle(editing.id, values)
+        : createArticle(values),
     onSuccess: () => {
       toast.success(editing ? "Article updated" : "Article created");
       setDialogOpen(false);
@@ -76,7 +74,7 @@ export default function AdminArticlesPage() {
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/admin/articles/${id}`, { method: "DELETE", token }),
+    mutationFn: (id: string) => deleteArticle(id),
     onSuccess: () => {
       toast.success("Article deleted");
       qc.invalidateQueries({ queryKey: ["admin-articles"] });
@@ -84,7 +82,7 @@ export default function AdminArticlesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
   });
 
-  const data = query.data ?? [];
+  const data = query.data?.data ?? [];
 
   return (
     <div>
@@ -134,7 +132,7 @@ export default function AdminArticlesPage() {
                     <span className="text-xs text-muted-foreground">/{a.slug}</span>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={a.isPublished ? "green" : "gray"}>{a.isPublished ? "Published" : "Draft"}</Badge>
+                    <Badge variant={a.status ? "green" : "gray"}>{a.status ? "Published" : "Draft"}</Badge>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
@@ -197,8 +195,8 @@ export default function AdminArticlesPage() {
               <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
                 <input
                   type="checkbox"
-                  checked={form.watch("isPublished")}
-                  onChange={(e) => form.setValue("isPublished", e.target.checked)}
+                  checked={form.watch("status")}
+                  onChange={(e) => form.setValue("status", e.target.checked)}
                   className="h-4 w-4 rounded border-line"
                 />
                 Published

@@ -3,43 +3,14 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, Database, Radio, Server, Webhook, MessageCircle, Loader2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { getHealthStatus, getHealthCounts, getSystemEvents, type HealthStatus, type HealthCounts } from "@/lib/admin/system";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { timeAgo, formatNumber, cn } from "@/lib/utils";
 
-type ServiceStatus = { status: string; message: string };
-
-type HealthData = {
-  server: ServiceStatus;
-  whatsapp: ServiceStatus;
-  database: ServiceStatus;
-  redis: ServiceStatus;
-  webhook: ServiceStatus;
-  version: string;
-  lastDeployment: string;
-  platform: string;
-  uptimeSeconds: number;
-  queues: Record<string, { waiting: number; active: number; completed: number; failed: number; delayed: number; paused: number }>;
-};
-
 type SystemEvent = { id: string; component: string; status: string; message: string; createdAt: string };
-
-type HealthCounts = {
-  users: number;
-  categories: number;
-  questions: number;
-  pendingQuestions: number;
-  contributions: number;
-  pendingContributions: number;
-  sessions: number;
-  activeSessions: number;
-  openReports: number;
-  pendingRequests: number;
-  pendingNotifications: number;
-};
 
 const SERVICE_ICONS = { server: Server, whatsapp: MessageCircle, database: Database, redis: Radio, webhook: Webhook };
 
@@ -54,21 +25,19 @@ const OVERALL_META: Record<OverallState, { label: string; variant: "green" | "or
 };
 
 export default function AdminHealthPage() {
-  const token = getToken();
-
-  const health = useQuery<HealthData>({
+  const health = useQuery<HealthStatus>({
     queryKey: ["admin-health"],
-    queryFn: () => apiFetch("/api/admin/health", { token }),
+    queryFn: () => getHealthStatus(),
     refetchInterval: 60_000,
   });
   const events = useQuery<{ events: SystemEvent[]; unhealthy: number }>({
     queryKey: ["admin-system-events"],
-    queryFn: () => apiFetch("/api/admin/health/system-events?limit=20", { token }),
+    queryFn: () => getSystemEvents(20),
     refetchInterval: 60_000,
   });
   const counts = useQuery<HealthCounts>({
-    queryKey: ["admin-health-counts"],
-    queryFn: () => apiFetch("/api/admin/health/counts", { token }),
+    queryKey: ["admin-health-count"],
+    queryFn: () => getHealthCounts(),
     refetchInterval: 60_000,
   });
 

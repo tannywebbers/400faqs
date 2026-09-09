@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Eye, PlayCircle } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { listSessions, getSessionDetail, type SessionRow, type SessionDetail } from "@/lib/admin/sessions";
 import { useAdminList } from "@/hooks/use-admin-list";
 import { AdminToolbar } from "@/components/admin/table-toolbar";
 import { Button } from "@/components/ui/button";
@@ -15,38 +15,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/pagination";
 import { formatDate, maskPhone } from "@/lib/utils";
 
-type Session = {
-  id: string;
-  status: "WAITING" | "ACTIVE" | "COMPLETED" | "ABANDONED";
-  state: string;
-  round: number;
-  turnsPlayed: number;
-  createdAt: string;
-  lastActivityAt: string;
-  creator: { phone: string; name: string | null };
-  joiner: { phone: string; name: string | null } | null;
-  category: { name: string; slug: string } | null;
-  _count: { moves: number };
-};
-
-type SessionDetail = Session & {
-  winner: { name: string } | null;
-  moves: {
-    id: string;
-    round: number;
-    number: number | null;
-    type: string;
-    status: string;
-    answer: string | null;
-    createdAt: string;
-    answeredAt: string | null;
-    question: { text: string; type: string };
-    askedByUser: { phone: string };
-    answeredByUser: { phone: string };
-  }[];
-};
-
-const STATUS_BADGE: Record<Session["status"], "green" | "orange" | "gray" | "red"> = {
+const STATUS_BADGE: Record<string, "green" | "orange" | "gray" | "red"> = {
   WAITING: "orange",
   ACTIVE: "green",
   COMPLETED: "gray",
@@ -54,14 +23,17 @@ const STATUS_BADGE: Record<Session["status"], "green" | "orange" | "gray" | "red
 };
 
 export default function AdminSessionsPage() {
-  const token = getToken();
-  const [viewing, setViewing] = useState<Session | null>(null);
+  const [viewing, setViewing] = useState<SessionRow | null>(null);
 
-  const list = useAdminList<Session>({ path: "/api/admin/sessions", limit: 20 });
+  const list = useAdminList<SessionRow>({
+    queryKey: "admin-sessions",
+    queryFn: (p) => listSessions({ page: p.page, limit: p.limit, q: p.q, status: p.status || undefined }),
+    limit: 20,
+  });
 
   const detail = useQuery<SessionDetail>({
     queryKey: ["admin-session", viewing?.id],
-    queryFn: () => apiFetch(`/api/admin/sessions/${viewing?.id}`, { token }),
+    queryFn: () => getSessionDetail(viewing!.id),
     enabled: !!viewing,
   });
 
@@ -124,9 +96,9 @@ export default function AdminSessionsPage() {
                     <span className="text-sm">{s.category?.name ?? "—"}</span>
                   </TableCell>
                   <TableCell>{s.round}</TableCell>
-                  <TableCell>{s._count.moves}</TableCell>
+                  <TableCell>{s.moveCount}</TableCell>
                   <TableCell>
-                    <Badge variant={STATUS_BADGE[s.status]}>{s.status}</Badge>
+                    <Badge variant={STATUS_BADGE[s.status] ?? "gray"}>{s.status}</Badge>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">{formatDate(s.createdAt)}</TableCell>
                   <TableCell className="text-right">
@@ -159,7 +131,7 @@ export default function AdminSessionsPage() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="rounded-xl bg-surface p-3">
                   <p className="text-xs text-muted-foreground">Status</p>
-                  <Badge variant={STATUS_BADGE[detail.data.status]} className="mt-1">{detail.data.status}</Badge>
+                  <Badge variant={STATUS_BADGE[detail.data.status] ?? "gray"} className="mt-1">{detail.data.status}</Badge>
                 </div>
                 <div className="rounded-xl bg-surface p-3">
                   <p className="text-xs text-muted-foreground">Category</p>

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { useState } from "react";
 import { toast } from "sonner";
 import { FolderPlus } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { submitCategoryRequest } from "@/lib/queries/public-client";
 import { Container } from "@/components/layout/container";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,7 +37,7 @@ export default function RequestCategoryPage() {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      const data = await apiFetch<Result>("/api/public/category-requests", { method: "POST", body: values });
+      const data = await submitCategoryRequest(values);
       setResult(data);
       toast.success("Category request submitted!");
     } catch (err) {

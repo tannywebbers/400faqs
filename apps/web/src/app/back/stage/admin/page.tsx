@@ -20,47 +20,14 @@ import {
   BarChart3,
   Wallet,
 } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { getDashboardStats, getRevenueSnapshot, getDashboardOps, type DashboardStats, type RevenueSnapshot, type OpsData } from "@/lib/admin/dashboard";
+import { getUnreadNotificationCount } from "@/lib/admin/system";
 import { StatCard } from "@/components/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { timeAgo } from "@/lib/utils";
-
-type DashboardStats = {
-  totals: {
-    users: number;
-    categories: number;
-    questions: number;
-    approvedQuestions: number;
-    pendingQuestions: number;
-    sessions: number;
-    activeSessions: number;
-    completedSessions: number;
-    moves: number;
-    contributions: number;
-    pendingContributions: number;
-    reports: number;
-    openReports: number;
-    categoryRequests: number;
-    pendingCategoryRequests: number;
-    contactMessages: number;
-    ads: number;
-  };
-  today: { questions: number; sessions: number; contributions: number; users: number };
-  recentActivity: { id: string; type: string; title: string; createdAt: string }[];
-};
-
-type RevenueSnapshot = {
-  totals: { estimated: number; confirmed: number; total: number; paid: number };
-};
-
-type OpsData = {
-  queues: Record<string, { waiting: number; active: number; completed: number; failed: number; delayed: number; paused: number }>;
-  moderationQueue: { pendingNotifications: number; failedNotifications: number; stuckNotifications: number };
-  recentEvents: { id: string; component: string; status: string; message: string; createdAt: string }[];
-};
 
 const TYPE_ICONS: Record<string, typeof Sparkles> = {
   contribution: Sparkles,
@@ -70,29 +37,27 @@ const TYPE_ICONS: Record<string, typeof Sparkles> = {
 };
 
 export default function AdminDashboardPage() {
-  const token = getToken();
-
-  const query = useQuery<DashboardStats>({
+  const query = useQuery({
     queryKey: ["admin-dashboard"],
-    queryFn: () => apiFetch("/api/admin/dashboard", { token }),
+    queryFn: () => getDashboardStats(),
     refetchInterval: 60_000,
   });
 
   const unread = useQuery<{ count: number }>({
     queryKey: ["admin-notifications-unread"],
-    queryFn: () => apiFetch("/api/admin/notifications/unread-count", { token }),
+    queryFn: () => getUnreadNotificationCount(),
     refetchInterval: 60_000,
   });
 
   const ops = useQuery<OpsData>({
     queryKey: ["admin-dashboard-ops"],
-    queryFn: () => apiFetch("/api/admin/dashboard/ops", { token }),
+    queryFn: () => getDashboardOps(),
     refetchInterval: 60_000,
   });
 
   const revenue = useQuery<RevenueSnapshot>({
     queryKey: ["admin-dashboard-revenue"],
-    queryFn: () => apiFetch("/api/admin/analytics/revenue", { token }),
+    queryFn: () => getRevenueSnapshot(),
     refetchInterval: 300_000,
   });
 

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle2, Loader2, ShieldCheck, Sparkles } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { fetchPublicCategories, fetchPublicSettings, submitContribution } from "@/lib/queries/public-client";
 import { Container } from "@/components/layout/container";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,8 +38,8 @@ type Outcome = {
   ticket: string;
   status: string;
   message: string;
-  moderation: { ok: boolean; score: number; reason: string | null };
-  duplicate: { exact: boolean; similar: boolean; score: number } | null;
+  moderation?: { ok: boolean; score: number; reason: string | null };
+  duplicate?: { exact: boolean; similar: boolean; score: number } | null;
 };
 
 export default function ContributePage() {
@@ -47,12 +47,12 @@ export default function ContributePage() {
 
   const { data: categories } = useQuery({
     queryKey: ["public-categories", "", "newest", 1],
-    queryFn: () => apiFetch<{ id: string; name: string; questionCount: number }[]>("/api/public/categories?limit=100&sort=alphabetical"),
+    queryFn: () => fetchPublicCategories({ limit: 100, sort: "alphabetical" }),
   });
 
   const { data: settings } = useQuery({
     queryKey: ["public-settings"],
-    queryFn: () => apiFetch<Record<string, string>>("/api/public/settings"),
+    queryFn: () => fetchPublicSettings(),
   });
 
   const {
@@ -67,7 +67,7 @@ export default function ContributePage() {
 
   const onSubmit = async (values: FormValues) => {
     try {
-      const data = await apiFetch<Outcome>("/api/public/contributions", { method: "POST", body: values });
+      const data = await submitContribution(values);
       setResult(data);
       if (data.status === "APPROVED") {
         toast.success("Question approved and added!");
@@ -200,7 +200,7 @@ export default function ContributePage() {
                 <AlertDescription>
                   <p>{result.message}</p>
                   {result.ticket && <p className="mt-2 font-mono text-xs">Ticket: {result.ticket}</p>}
-                  <p className="mt-2 text-xs opacity-80">AI quality score: {Math.round(result.moderation.score * 100)}%</p>
+                  {result.moderation && <p className="mt-2 text-xs opacity-80">AI quality score: {Math.round(result.moderation.score * 100)}%</p>}
                 </AlertDescription>
               </Alert>
             )}

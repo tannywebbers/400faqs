@@ -7,7 +7,8 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { useState } from "react";
 import { Plus, Trash2, ShieldCheck, UserCircle } from "lucide-react";
-import { apiFetch, getToken, getAdminUser } from "@/lib/api";
+import { listAdmins, createAdmin, deleteAdmin, type AdminRow } from "@/lib/admin/system";
+import { getAdminUser } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,8 +21,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { formatDate } from "@/lib/utils";
 
-type Admin = { id: string; name: string; email: string; role: "SUPER_ADMIN" | "ADMIN" | "MODERATOR"; lastLoginAt: string | null; isActive: boolean; createdAt: string };
-
 const schema = z.object({
   name: z.string().min(2).max(100),
   email: z.string().email(),
@@ -31,21 +30,20 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-const ROLE_BADGE: Record<Admin["role"], "purple" | "blue" | "gray"> = {
+const ROLE_BADGE: Record<string, "purple" | "blue" | "gray"> = {
   SUPER_ADMIN: "purple",
   ADMIN: "blue",
   MODERATOR: "gray",
 };
 
 export default function AdminAdminsPage() {
-  const token = getToken();
   const qc = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const current = getAdminUser();
 
-  const query = useQuery<Admin[]>({
+  const query = useQuery({
     queryKey: ["admin-admins"],
-    queryFn: () => apiFetch("/api/admin/admins", { token }),
+    queryFn: () => listAdmins({ limit: 100 }),
   });
 
   const form = useForm<FormValues>({
@@ -54,7 +52,7 @@ export default function AdminAdminsPage() {
   });
 
   const create = useMutation({
-    mutationFn: (values: FormValues) => apiFetch("/api/admin/admins", { method: "POST", token, body: values }),
+    mutationFn: (values: FormValues) => createAdmin(values),
     onSuccess: () => {
       toast.success("Admin created");
       setDialogOpen(false);
@@ -65,7 +63,7 @@ export default function AdminAdminsPage() {
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/admin/admins/${id}`, { method: "DELETE", token }),
+    mutationFn: (id: string) => deleteAdmin(id),
     onSuccess: () => {
       toast.success("Admin removed");
       qc.invalidateQueries({ queryKey: ["admin-admins"] });
@@ -73,7 +71,7 @@ export default function AdminAdminsPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
   });
 
-  const data = query.data ?? [];
+  const data = query.data?.data ?? [];
 
   return (
     <div>
@@ -122,8 +120,8 @@ export default function AdminAdminsPage() {
                   </div>
                   <div className="mt-4 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Badge variant={ROLE_BADGE[a.role]}>{a.role.replace("_", " ")}</Badge>
-                      <Badge variant={a.isActive ? "green" : "gray"}>{a.isActive ? "Active" : "Disabled"}</Badge>
+                      <Badge variant={ROLE_BADGE[a.role] ?? "gray"}>{a.role.replace("_", " ")}</Badge>
+                      <Badge variant={a.active ? "green" : "gray"}>{a.active ? "Active" : "Disabled"}</Badge>
                     </div>
                     {!isSelf && (
                       <Button

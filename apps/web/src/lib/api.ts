@@ -111,6 +111,10 @@ export const clearToken = (): void => {
   window.localStorage.removeItem("400faqs_admin_token");
 };
 
+export const clearAdminUser = (): void => {
+  window.localStorage.removeItem("400faqs_admin_user");
+};
+
 export const getAdminUser = (): { id: string; name: string; email: string; role: string } | null => {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem("400faqs_admin_user");

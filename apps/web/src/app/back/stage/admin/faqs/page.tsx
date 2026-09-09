@@ -7,7 +7,8 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { useState } from "react";
 import { Plus, Pencil, Trash2 } from "lucide-react";
-import { apiFetch, getToken } from "@/lib/api";
+import { listFaqs, createFaq, updateFaq, deleteFaq, type Faq } from "@/lib/admin/content";
+import type { PaginatedResult } from "@/lib/admin/shared";
 import { AdminToolbar } from "@/components/admin/table-toolbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,52 +21,49 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/empty-state";
 import { useDebounce } from "@/hooks/use-debounce";
 
-type Faq = { id: string; question: string; answer: string; order: number; isActive: boolean; createdAt: string };
-
 const schema = z.object({
   question: z.string().min(5).max(300),
   answer: z.string().min(5).max(2000),
   order: z.coerce.number().min(0),
-  isActive: z.boolean(),
+  status: z.boolean(),
 });
 
 type FormValues = z.infer<typeof schema>;
 
 export default function AdminFaqsPage() {
-  const token = getToken();
   const qc = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Faq | null>(null);
   const [q, setQ] = useState("");
   const debounced = useDebounce(q, 400);
 
-  const query = useQuery<Faq[]>({
+  const query = useQuery<PaginatedResult<Faq>>({
     queryKey: ["admin-faqs", debounced],
-    queryFn: () => apiFetch(`/api/admin/faqs${debounced ? `?q=${encodeURIComponent(debounced)}` : ""}`, { token }),
+    queryFn: () => listFaqs({ q: debounced }),
   });
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { question: "", answer: "", order: 0, isActive: true },
+    defaultValues: { question: "", answer: "", order: 0, status: true },
   });
 
   const openCreate = () => {
     setEditing(null);
-    form.reset({ question: "", answer: "", order: 0, isActive: true });
+    form.reset({ question: "", answer: "", order: 0, status: true });
     setDialogOpen(true);
   };
 
   const openEdit = (f: Faq) => {
     setEditing(f);
-    form.reset({ question: f.question, answer: f.answer, order: f.order, isActive: f.isActive });
+    form.reset({ question: f.question, answer: f.answer, order: f.order, status: f.status });
     setDialogOpen(true);
   };
 
   const save = useMutation({
     mutationFn: (values: FormValues) =>
       editing
-        ? apiFetch(`/api/admin/faqs/${editing.id}`, { method: "PUT", token, body: values })
-        : apiFetch("/api/admin/faqs", { method: "POST", token, body: values }),
+        ? updateFaq(editing.id, values)
+        : createFaq(values),
     onSuccess: () => {
       toast.success(editing ? "FAQ updated" : "FAQ created");
       setDialogOpen(false);
@@ -75,7 +73,7 @@ export default function AdminFaqsPage() {
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/admin/faqs/${id}`, { method: "DELETE", token }),
+    mutationFn: (id: string) => deleteFaq(id),
     onSuccess: () => {
       toast.success("FAQ deleted");
       qc.invalidateQueries({ queryKey: ["admin-faqs"] });
@@ -83,7 +81,7 @@ export default function AdminFaqsPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
   });
 
-  const data = query.data ?? [];
+  const data = query.data?.data ?? [];
 
   return (
     <div>
@@ -130,7 +128,7 @@ export default function AdminFaqsPage() {
                     <p className="line-clamp-2 text-sm text-muted-foreground">{f.answer}</p>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={f.isActive ? "green" : "gray"}>{f.isActive ? "Active" : "Hidden"}</Badge>
+                    <Badge variant={f.status ? "green" : "gray"}>{f.status ? "Active" : "Hidden"}</Badge>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
@@ -179,8 +177,8 @@ export default function AdminFaqsPage() {
                 <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
                   <input
                     type="checkbox"
-                    checked={form.watch("isActive")}
-                    onChange={(e) => form.setValue("isActive", e.target.checked)}
+                    checked={form.watch("status")}
+                    onChange={(e) => form.setValue("status", e.target.checked)}
                     className="h-4 w-4 rounded border-line"
                   />
                   Active

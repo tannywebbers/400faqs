@@ -1,15 +1,7 @@
 import { Container } from "@/components/layout/container";
-import { publicFetch } from "@/lib/api";
+import { getLegalContent as getLegalContentFromDB } from "@/lib/queries/public-server";
 
 export type LegalBlock = { heading: string; body: string };
-
-export type LandingSection = {
-  id: string;
-  sectionKey: string;
-  title: string | null;
-  content: string | null;
-  isVisible: boolean;
-};
 
 function parseBlocks(content: string | null | undefined, fallback: LegalBlock[]): LegalBlock[] {
   if (!content) return fallback;
@@ -30,14 +22,13 @@ export async function getLegalContent(
   fallbackBlocks: LegalBlock[]
 ): Promise<{ title: string; blocks: LegalBlock[] }> {
   try {
-    const landing = await publicFetch<LandingSection[]>("/api/public/landing");
-    const section = landing.find((s) => s.sectionKey === sectionKey);
+    const section = await getLegalContentFromDB(sectionKey);
     if (section) {
       const blocks = parseBlocks(section.content, fallbackBlocks);
       return { title: section.title ?? fallbackTitle, blocks };
     }
   } catch {
-    /* API unreachable — fall back to defaults below */
+    /* DB unreachable — fall back to defaults below */
   }
   return { title: fallbackTitle, blocks: fallbackBlocks };
 }

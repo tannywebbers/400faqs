@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { Search, TrendingUp, Clock, PlayCircle, ListOrdered, ArrowDownAZ } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { fetchPublicCategories, type CategoryListItem } from "@/lib/queries/public-client";
 import { PageHeader } from "@/components/page-header";
 import { Container } from "@/components/layout/container";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,19 +15,7 @@ import { Input } from "@/components/ui/input";
 import { useDebounce } from "@/hooks/use-debounce";
 import { cn } from "@/lib/utils";
 
-type Category = {
-  id: string;
-  name: string;
-  slug: string;
-  description: string;
-  icon: string;
-  color: string;
-  questionCount: number;
-  contributionCount: number;
-  playCount: number;
-  trending: boolean;
-  createdByName: string;
-};
+type Category = CategoryListItem;
 
 const SORTS = [
   { value: "newest", label: "Newest", icon: Clock },
@@ -45,8 +33,7 @@ export default function CategoriesPage() {
 
   const query = useQuery({
     queryKey: ["public-categories", debounced, sort, page],
-    queryFn: () =>
-      apiFetch<Category[]>(`/api/public/categories?page=${page}&limit=12&q=${encodeURIComponent(debounced)}&sort=${sort}`),
+    queryFn: () => fetchPublicCategories({ page, limit: 12, q: debounced, sort }),
     placeholderData: (prev) => prev,
   });
 
